@@ -219,9 +219,12 @@ function ranking(){
 function statusOf(l){ const ss = statuses(); let i = ss.findIndex(s => s.id === l.status); if (i < 0) i = 0; return {i, s:ss[i]}; }
 const chipHTML = l => { const o = statusOf(l); return `<span class="chip st${o.i % 4 + 1}">${esc(o.s.label)}</span>`; };
 const avatar = (uid, cls) => { const n = nameOf(uid); return `<span class="av av${hashN(uid, 6) + 1} ${cls || ''}" title="${esc(n)}" aria-hidden="true">${esc((n.trim()[0] || '?').toUpperCase())}</span>`; };
+const photosOf = l => { const a = Array.isArray(l.photos) ? l.photos.filter(x => PHOTO_ID.test(x)) : []; if (!a.length && l.photo && PHOTO_ID.test(l.photo)) a.push(l.photo); return a; };
+const MAX_PH = 6;
 function photoHTML(l, extra){
   const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
-  if (l.photo && PHOTO_ID.test(l.photo)) return `<div class="ph ${tint}"><img src="${esc(photoUrl(l.photo))}" alt="" loading="lazy" data-fb>${extra || ''}</div>`;
+  const ps = photosOf(l);
+  if (ps.length) return `<div class="ph ${tint}"><img src="${esc(photoUrl(ps[0]))}" alt="" loading="lazy" data-fb>${extra || ''}${extra !== undefined && ps.length > 1 ? `<span class="ph-count" aria-label="${ps.length} photos">${ps.length} photos</span>` : ''}</div>`;
   return `<div class="ph ${tint}">${IC.house}${extra || ''}</div>`;
 }
 function pinPos(l){
@@ -443,7 +446,13 @@ function fillDates(changed){
     ${table}`;
   if (el._h !== html) {
     const prevBars = $$('.wbar .col span', el).map(b => b.style.transform);
+    /* Le bandeau vert change de hauteur quand on coche : on garde la case cliquée immobile et on adoucit le changement */
+    const oldCard = $('.best-card', el), oldH = oldCard ? oldCard.offsetHeight : null;
+    const anchorSel = S.focusWeek ? `[data-week="${CSS.escape(S.focusWeek)}"]` : null;
+    const aTop = anchorSel && $(anchorSel, el) ? $(anchorSel, el).getBoundingClientRect().top : null;
+    const holdY = () => { if (aTop == null || !scrollY) return; const b = $(anchorSel, el); if (b) { const d = b.getBoundingClientRect().top - aTop; if (Math.abs(d) > .5) window.scrollBy(0, d); } };
     el.innerHTML = html; el._h = html;
+    if (!changed && oldH != null) { holdY(); const nc = $('.best-card', el); if (nc && !GM.heightFrom(nc, oldH, holdY)) holdY(); }
     if (!changed && prevBars.length && GM.bars) GM.bars($$('.wbar .col span', el), prevBars);
     if (S.stampWeek) { S.stampWeek = false; const sp = $('.best-card .stamp', el); if (sp && M() && GM.stamp) GM.stamp(sp, .2); }
     if (changed && M()) {
@@ -663,6 +672,12 @@ function renderBanner(){
   else if (cfg().closed) msg = 'Les votes sont clos depuis le ' + fmtLong(cfg().closedAt) + '. Le podium est définitif.';
   const b = $('#banner'); b.hidden = !msg; b.textContent = msg;
 }
+function avancementHTML(){
+  const ls = listingsArr(); const n = ls.length;
+  if (!n) return '<span class="tf-v tf-empty">Aucun logement pour l’instant</span>';
+  const k = ls.filter(l => { const x = st(l.id); return x.total > 0 && x.voted >= x.total; }).length;
+  return `<span class="tf-v">${esc(plural(n, 'logement'))}</span><button type="button" class="tf-sub" data-view="podium">${k} / ${n} noté${k > 1 ? 's' : ''} par tout le monde</button>`;
+}
 function renderTrip(force){
   const band = $('#trip');
   if (!force && band.querySelector('input')) return;
@@ -674,7 +689,7 @@ function renderTrip(force){
       ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
       : `<span class="tf-v">${esc(v || ph)}</span>`;
     return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
-  }).join('') + `<div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
   if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
 }
 function editTrip(k){
@@ -706,6 +721,8 @@ function renderTabs(){
 function placeInd(animate){
   const nav = $('#tabs'), ind = $('#tab-ind'), a = $('.tab[aria-selected="true"]', nav); if (!a) return;
   /* offsetLeft/offsetTop ignorent les transformations : l'indicateur reste juste même quand les onglets sont en pleine animation d'entrée */
+  /* Copie des onglets en couleurs inversées : la pastille les traverse par-dessus sans jamais les masquer */
+  if (ind.children.length !== $$('.tab', nav).length) ind.innerHTML = $$('.tab', nav).map(t => `<span class="tab">${esc(t.textContent)}</span>`).join('');
   const nw = nav.clientWidth, nh = nav.clientHeight;
   if (!nw) return;
   const l = a.offsetLeft, t = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight;
@@ -1073,12 +1090,7 @@ function fillPodium(changed){
 }
 
 /* ---------- Fiche ---------- */
-function srcRectOf(el){
-  if (!el || !document.contains(el)) return null;
-  const c = el.closest('.card, .ml-item, li') || el; const r = c.getBoundingClientRect();
-  if (r.width < 8 || r.bottom < 0 || r.top > innerHeight) return null;
-  return r;
-}
+function srcCardOf(el){ return el && el.closest ? el.closest('.card') : null; }
 function openListing(id){
   if (!S.listings[id]) return;
   const wasOpen = !!S.openId;
@@ -1089,7 +1101,7 @@ function openListing(id){
   if (canSee(id)) S.unlockedSeen.add(id);
   let grown = false;
   if (!wasOpen) {
-    const src = srcRectOf(S.clickSrc || S.drawerTrigger);
+    const src = srcCardOf(S.clickSrc || S.drawerTrigger);
     w.hidden = false; void w.offsetWidth; w.classList.add('open'); $('#app').inert = true;
     grown = M() && GM.modalOpen && GM.modalOpen(dw, $('.dw-scrim', w), src);
   } else $('.dw-scroll', dw).scrollTop = 0;
@@ -1109,15 +1121,24 @@ function closeDrawer(){
   let t = S.drawerTrigger;
   if (!t || !document.contains(t)) t = $(`#app [data-open="${CSS.escape(lastId)}"]`);
   const fin = () => { if (!S.openId) { w.hidden = true; dw.innerHTML = ''; } };
-  if (M() && GM.modalClose) GM.modalClose(dw, $('.dw-scrim', w), srcRectOf(t), fin); else fin();
+  if (M() && GM.modalClose) GM.modalClose(dw, $('.dw-scrim', w), srcCardOf($(`#panel .card[data-k="${CSS.escape(lastId)}"]`)), fin); else fin();
   if (t) t.focus({preventScroll:true});
   markPins();
 }
 function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', p.dataset.open === S.openId)); }
+function dwPhotoHTML(l){
+  const ps = photosOf(l); if (ps.length < 2) return photoHTML(l);
+  const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
+  const ar = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+  return `<div class="dw-track" id="dw-track" tabindex="0" role="group" aria-label="Photos du logement">${ps.map((p, i) => `<div class="ph ${tint}"><img src="${esc(photoUrl(p))}" alt="Photo ${i + 1} sur ${ps.length}"${i ? ' loading="lazy"' : ''} data-fb></div>`).join('')}</div>
+    <button type="button" class="dw-nav dw-prev" data-pnav="-1" aria-label="Photo précédente">${ar('M15 5l-7 7 7 7')}</button>
+    <button type="button" class="dw-nav dw-next" data-pnav="1" aria-label="Photo suivante">${ar('M9 5l7 7-7 7')}</button>
+    <div class="dw-dots" aria-hidden="true">${ps.map((_, i) => `<span${i ? '' : ' class="on"'}></span>`).join('')}</div>`;
+}
 function drawerHTML(l){
   return `<button type="button" class="icon-btn dw-close" id="dw-close" aria-label="Fermer la fiche">${IC.x}</button>
   <div class="dw-scroll">
-    <div class="dw-photo">${photoHTML(l)}${l.status === 'reserve' ? '<span class="stamp" aria-label="Retenu">Retenu</span>' : ''}</div>
+    <div class="dw-photo">${dwPhotoHTML(l)}${l.status === 'reserve' ? '<span class="stamp" aria-label="Retenu">Retenu</span>' : ''}</div>
     <div class="dw-pad">
       <div id="dw-head">${dwHead(l)}</div>
       <div id="dw-facts">${dwFacts(l)}</div>
@@ -1264,6 +1285,7 @@ function toggleMark(lid, kind){
     else { v[kind] = lid; v[kind + 'Why'] = ''; if (v[other] === lid) { v[other] = null; v[other + 'Why'] = ''; } }
   });
   saveVote(true);
+  const factsEl = $('#dw-facts'), voteEl = $('#dw-vote'); const hF = factsEl ? factsEl.offsetHeight : null, hV = voteEl ? voteEl.offsetHeight : null;
   const sc = $('.dw-scroll'), sel = `#dw-vote [data-${kind}="${CSS.escape(lid)}"]`;
   const top0 = ($(sel) || {getBoundingClientRect:() => ({top:0})}).getBoundingClientRect().top;
   const hold = () => { const b = $(sel); if (sc && b) sc.scrollTop += b.getBoundingClientRect().top - top0; };
@@ -1276,16 +1298,22 @@ function toggleMark(lid, kind){
     if (on && kind === 'veto') { anim(btn, [{transform:'translateX(0)'}, {transform:'translateX(-6px)'}, {transform:'translateX(6px)'}, {transform:'translateX(-3px)'}, {transform:'none'}], {duration:340, easing:'ease-out'}); anim($('svg', btn), [{transform:'rotate(0)'}, {transform:'rotate(-24deg)'}, {transform:'rotate(20deg)'}, {transform:'rotate(-12deg)'}, {transform:'none'}], {duration:420, easing:'ease-out'}); }
   }
   S.st = computeStats(); const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[lid]);
-  hold(); schedule();
+  hold();
+  if (M() && GM.heightFrom) {
+    if (f) GM.heightFrom(f, hF, hold);
+    GM.heightFrom($('#dw-vote'), hV, hold);
+    GM.fadeIn($$('#dw-vote .why-in, #dw-facts .mk-block'));
+  }
+  schedule();
 }
 
 /* ---------- Ajouter / modifier un logement ---------- */
-const ML = {shots:[], photo:null, editId:null, ai:false, lat:null, lng:null, ctl:null, touched:{}, ocrBusy:false, tTimer:0};
+const ML = {shots:[], photos:[], editId:null, ai:false, lat:null, lng:null, ctl:null, touched:{}, ocrBusy:false, tTimer:0};
 function openListingModal(id){
   if (!canEdit()) { toast('Ton accès ne permet pas d’ajouter de logement.'); return; }
   if (!S.members[S.myId]) { openSettings(true); return; }
   const l = id ? S.listings[id] : null;
-  ML.shots = []; ML.editId = id || null; ML.ai = false; ML.touched = {}; ML.photo = l && l.photo ? {type:'existing', id:l.photo} : null;
+  ML.shots = []; ML.editId = id || null; ML.ai = false; ML.touched = {}; ML.photos = photosOf(l || {}).map(id => ({type:'existing', id}));
   ML.lat = l ? num(l.lat) : null; ML.lng = l ? num(l.lng) : null;
   openModal(listingModalHTML(l || {}));
   renderShots(); renderPhotoZone(); checkDup();
@@ -1334,20 +1362,16 @@ function listingModalHTML(l){
 function renderShots(){
   const el = $('#li-shot-list'); if (!el) return;
   const ST = {wait:'En attente', busy:'Lecture…', text:'Texte lu', photo:'Photo', error:'Illisible'};
-  el.innerHTML = ML.shots.map((s, i) => `<div class="shot"><img src="${s.url}" alt="Capture ${i + 1}"><div class="sa"><span class="shot-st shot-${s.state || 'wait'}">${ST[s.state] || ''}</span><label class="check-inline"><input type="radio" name="li-ph" data-shotph="${i}"${ML.photo && ML.photo.type === 'shot' && ML.photo.idx === i ? ' checked' : ''}>Photo de la fiche</label><button type="button" class="link-btn" data-rmshot="${i}">Retirer</button></div></div>`).join('');
+  el.innerHTML = ML.shots.map((s, i) => `<div class="shot"><img src="${s.url}" alt="Capture ${i + 1}"><div class="sa"><span class="shot-st shot-${s.state || 'wait'}">${ST[s.state] || ''}</span><label class="check-inline"><input type="checkbox" data-shotph="${i}"${ML.photos.some(p => p.shot === s) ? ' checked' : ''}>Photo de la fiche</label><button type="button" class="link-btn" data-rmshot="${i}">Retirer</button></div></div>`).join('');
 }
+const phSrc = p => p.type === 'existing' ? photoUrl(p.id) : p.type === 'shot' ? p.shot.url : p.url;
 function renderPhotoZone(){
   const el = $('#li-photo-zone'); if (!el) return;
-  let prev = '';
-  const p = ML.photo;
-  if (p && p.type === 'existing') prev = `<img src="${esc(photoUrl(p.id))}" alt="Photo actuelle" data-fb>`;
-  else if (p && p.type === 'shot' && ML.shots[p.idx]) prev = `<img src="${ML.shots[p.idx].url}" alt="Capture choisie">`;
-  else if (p && p.type === 'file') prev = `<img src="${p.url}" alt="Photo choisie">`;
-  else prev = `<div class="ph ph${hashN(ML.editId || 'new', 6) + 1}">${IC.house}</div>`;
-  el.innerHTML = `<div class="photo-prev">${prev}</div><div class="sec-gap" style="gap:8px">
-    ${p ? '' : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux choisir une de tes captures ci-dessus.</span>'}
-    ${S.assets ? '<div><input type="file" id="li-photo-file" accept="image/png,image/jpeg,image/webp" class="sr-only"><label for="li-photo-file" class="btn btn-sm">Choisir une photo</label></div>' : '<span class="hint">L’ajout de photo n’est pas disponible avec ton accès.</span>'}
-    ${p ? '<button type="button" class="link-btn" data-act="rm-photo">Retirer la photo</button>' : ''}</div>`;
+  const list = ML.photos.map((p, i) => `<div class="ph-item"><img src="${esc(phSrc(p))}" alt="Photo ${i + 1}"${p.type === 'existing' ? ' data-fb' : ''}>${i === 0 ? '<span class="ph-cover">Couverture</span>' : `<button type="button" class="ph-first" data-phfirst="${i}">En premier</button>`}<button type="button" class="ph-rm" data-rmphoto="${i}" aria-label="Retirer la photo ${i + 1}">×</button></div>`).join('');
+  const full = ML.photos.length >= MAX_PH;
+  el.innerHTML = `${ML.photos.length ? `<div class="ph-list">${list}</div>` : `<div class="photo-prev"><div class="ph ph${hashN(ML.editId || 'new', 6) + 1}">${IC.house}</div></div>`}<div class="sec-gap" style="gap:8px">
+    ${ML.photos.length ? `<span class="hint">${ML.photos.length} / ${MAX_PH} photos. La première sert de couverture sur la carte.</span>` : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux cocher « Photo de la fiche » sur tes captures ci-dessus, ou ajouter des photos.</span>'}
+    ${S.assets ? `<div><input type="file" id="li-photo-file" accept="image/png,image/jpeg,image/webp" multiple class="sr-only"><label for="li-photo-file" class="btn btn-sm${full ? ' is-off' : ''}">${ML.photos.length ? 'Ajouter des photos' : 'Choisir des photos'}</label></div>` : '<span class="hint">L’ajout de photo n’est pas disponible avec ton accès.</span>'}</div>`;
 }
 function addShots(files){
   const imgs = Array.from(files || []).filter(f => /^image\//.test(f.type));
@@ -1452,7 +1476,7 @@ function runParse(){
   setF('li-bedrooms', r.bedrooms); setF('li-beds', r.beds);
   setF('li-eq', r.equipments && r.equipments.join(', '));
   autoSource();
-  if (!ML.photo) { const i = ML.shots.findIndex(s => s.state === 'photo'); if (i >= 0) { ML.photo = {type:'shot', idx:i}; renderShots(); renderPhotoZone(); } }
+  { let add = 0; ML.shots.forEach(sh => { if (sh.state === 'photo' && !sh.phSeen) { sh.phSeen = true; if (ML.photos.length < MAX_PH) { ML.photos.push({type:'shot', shot:sh}); add++; } } }); if (add) { renderShots(); renderPhotoZone(); } }
   if (n) ML.ai = true;
   return n;
 }
@@ -1530,21 +1554,23 @@ async function saveListing(){
   err.hidden = true;
   const btn = $('#li-save'); btn.disabled = true; btn.textContent = 'Enregistrement…'; $('#li-save-err').textContent = '';
   const prev = ML.editId ? S.listings[ML.editId] : null;
-  let photo = ML.photo && ML.photo.type === 'existing' ? ML.photo.id : null;
-  const src = ML.photo && (ML.photo.type === 'shot' ? (ML.shots[ML.photo.idx] || {}).file : (ML.photo.type === 'file' ? ML.photo.file : null));
-  if (src) {
-    if (S.assets) {
-      try { const blob = await shrink(src); const r = await S.assets.upload(blob, {type: blob.type && /^image\/(jpeg|png|webp|gif)$/.test(blob.type) ? blob.type : 'image/jpeg'}); photo = r.id; }
-      catch (e) { toast(e && e.code === 'too_large' ? 'Photo trop lourde : elle n’a pas été ajoutée.' : 'La photo n’a pas pu être ajoutée.'); }
-    } else toast('La photo n’a pas été ajoutée : ton accès ne le permet pas.');
+  const photos = []; let failed = 0;
+  for (const p of ML.photos) {
+    if (p.type === 'existing') { photos.push(p.id); continue; }
+    const src = p.type === 'shot' ? p.shot.file : p.file;
+    if (!S.assets) { failed++; continue; }
+    try { const blob = await shrink(src); const r = await S.assets.upload(blob, {type: blob.type && /^image\/(jpeg|png|webp|gif)$/.test(blob.type) ? blob.type : 'image/jpeg'}); photos.push(r.id); }
+    catch (e) { failed++; if (e && e.code === 'too_large') toast('Une photo est trop lourde : elle n’a pas été ajoutée.'); }
   }
+  if (failed) toast(S.assets ? (failed > 1 ? failed + ' photos n’ont pas pu être ajoutées.' : 'Une photo n’a pas pu être ajoutée.') : 'Les photos n’ont pas été ajoutées : ton accès ne le permet pas.');
+  const photo = photos[0] || null;
   const data = {
     title, url:safeUrl($('#li-url').value), source:$('#li-source').value.trim(),
     price:num($('#li-price').value), priceDates:$('#li-dates').value.trim(),
     commune:$('#li-commune').value.trim(), dept:$('#li-dept').value, lat:ML.lat, lng:ML.lng,
     bedrooms:int($('#li-bedrooms').value), beds:int($('#li-beds').value),
     equipments:$('#li-eq').value.split(/[,;\n]/).map(x => x.trim()).filter(Boolean).slice(0, 12).map(x => x.slice(0, 30)),
-    note:$('#li-note').value.trim(), status:$('#li-status').value || statuses()[0].id, photo,
+    note:$('#li-note').value.trim(), status:$('#li-status').value || statuses()[0].id, photo, photos,
     importedWith: ML.ai ? 'lecture-captures' : ((prev && prev.importedWith) || 'manuel'),
     addedBy: (prev && prev.addedBy) || S.myId, createdAt: (prev && prev.createdAt) || Date.now(),
     updatedAt: Date.now(), updatedBy: S.myId
@@ -1552,7 +1578,7 @@ async function saveListing(){
   const id = ML.editId || S.db.collection('listings').doc().id;
   try {
     await writeDoc('listings/' + id, data);
-    if (prev && prev.photo && prev.photo !== photo && S.assets) S.assets.delete(prev.photo).catch(() => {});
+    if (prev && S.assets) photosOf(prev).filter(id => !photos.includes(id)).forEach(id => S.assets.delete(id).catch(() => {}));
     closeModal();
     toast(prev ? 'Fiche mise à jour' : 'Logement ajouté au carnet');
     if (!prev) { S.highlight = id; if (S.view !== 'galerie') setView('galerie'); setTimeout(() => { S.highlight = null; schedule(); }, 2600); }
@@ -1618,8 +1644,8 @@ function closeModal(force){
   const m = $('#modal'); if (m.hidden) return;
   if (m.dataset.locked && !force) return;
   if (ML.ctl) ML.ctl.abort();
-  ML.shots.forEach(s => URL.revokeObjectURL(s.url)); if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url);
-  ML.shots = []; ML.photo = null;
+  ML.shots.forEach(s => URL.revokeObjectURL(s.url)); ML.photos.forEach(p => { if (p.type === 'file') URL.revokeObjectURL(p.url); });
+  ML.shots = []; ML.photos = [];
   m.classList.remove('open');
   const fin = () => { if (!m.classList.contains('open')) { m.hidden = true; m.innerHTML = ''; } };
   if (M()) setTimeout(fin, 260); else fin();
@@ -1787,7 +1813,7 @@ function bindStatic(){
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
     if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
-    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-phfirst],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
@@ -1809,7 +1835,10 @@ function bindStatic(){
     if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
     if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
     if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
-    if (d.rmshot) { const i = +d.rmshot; const s = ML.shots[i]; if (s) URL.revokeObjectURL(s.url); ML.shots.splice(i, 1); if (ML.photo && ML.photo.type === 'shot') { if (ML.photo.idx === i) ML.photo = null; else if (ML.photo.idx > i) ML.photo.idx--; } renderShots(); renderPhotoZone(); return; }
+    if (d.rmphoto !== undefined) { const p = ML.photos[+d.rmphoto]; if (p && p.type === 'file') URL.revokeObjectURL(p.url); ML.photos.splice(+d.rmphoto, 1); renderShots(); renderPhotoZone(); return; }
+    if (d.phfirst !== undefined) { const [p] = ML.photos.splice(+d.phfirst, 1); if (p) ML.photos.unshift(p); renderPhotoZone(); return; }
+    if (d.pnav !== undefined) { const tr = $('#dw-track'); if (tr) tr.scrollBy({left:+d.pnav * tr.clientWidth, behavior:M() ? 'smooth' : 'auto'}); return; }
+    if (d.rmshot) { const i = +d.rmshot; const s = ML.shots[i]; if (s) URL.revokeObjectURL(s.url); ML.shots.splice(i, 1); if (s) ML.photos = ML.photos.filter(p => p.shot !== s); renderShots(); renderPhotoZone(); return; }
     switch (d.act) {
       case 'add': return openListingModal();
       case 'edit': return openListingModal(d.id);
@@ -1819,7 +1848,7 @@ function bindStatic(){
       case 'map-reset': return selectDep(null);
       case 'del': S.dwConfirm = true; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); { const b = $('[data-act="del-cancel"]'); if (b) b.focus(); } return;
       case 'del-cancel': S.dwConfirm = false; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); return;
-      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && l.photo && S.assets) S.assets.delete(l.photo).catch(() => {}); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
+      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && S.assets) photosOf(l).forEach(pid => S.assets.delete(pid).catch(() => {})); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
       case 'close-votes': S.confirmClose = true; return fillPodium();
       case 'close-cancel': S.confirmClose = false; return fillPodium();
       case 'close-confirm': S.confirmClose = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:true, closedAt:Date.now()})); return;
@@ -1831,7 +1860,6 @@ function bindStatic(){
       case 'dl-md': return download('md');
       case 'dl-csv': return download('csv');
       case 'add-crit': { const box = $('#st-crits'); box.insertAdjacentHTML('beforeend', critRow({id:'c' + Date.now().toString(36), label:''})); $('.crit-row:last-child input', box).focus(); return; }
-      case 'rm-photo': if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url); ML.photo = null; renderShots(); renderPhotoZone(); return;
     }
   });
   document.addEventListener('keydown', e => {
@@ -1849,6 +1877,7 @@ function bindStatic(){
     if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pin')) { e.preventDefault(); openListing(e.target.dataset.open); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'dw-ctext') { e.preventDefault(); $('#dw-cform').requestSubmit(); }
   });
+  document.addEventListener('scroll', e => { const tr = e.target; if (!tr || tr.id !== 'dw-track') return; const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)); $$('.dw-dots span').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
   document.addEventListener('change', e => {
     const t = e.target;
     if (t.closest && t.closest('#f-listing .fgrid')) { ML.touched[t.id] = true; t.classList.remove('auto-filled'); }
@@ -1857,8 +1886,8 @@ function bindStatic(){
     else if (t.id === 'f-sort') { S.f.sort = t.value; renderView(); }
     else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l && t.value === 'reserve' && l.status !== 'reserve') S.stampAnim = l.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
     else if (t.id === 'li-shots') { addShots(t.files); t.value = ''; }
-    else if (t.id === 'li-photo-file') { const f = t.files && t.files[0]; if (f) { if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url); ML.photo = {type:'file', file:f, url:URL.createObjectURL(f)}; renderShots(); renderPhotoZone(); } }
-    else if (t.dataset && t.dataset.shotph !== undefined) { ML.photo = {type:'shot', idx:+t.dataset.shotph}; renderPhotoZone(); }
+    else if (t.id === 'li-photo-file') { Array.from(t.files || []).filter(f => /^image\//.test(f.type)).forEach(f => { if (ML.photos.length < MAX_PH) ML.photos.push({type:'file', file:f, url:URL.createObjectURL(f)}); else toast(MAX_PH + ' photos au maximum.'); }); t.value = ''; renderShots(); renderPhotoZone(); }
+    else if (t.dataset && t.dataset.shotph !== undefined) { const sh = ML.shots[+t.dataset.shotph]; if (sh) { sh.phSeen = true; if (t.checked) { if (ML.photos.length >= MAX_PH) { t.checked = false; toast(MAX_PH + ' photos au maximum.'); } else ML.photos.push({type:'shot', shot:sh}); } else ML.photos = ML.photos.filter(p => p.shot !== sh); } renderPhotoZone(); }
     else if (t.id === 'li-dept') { ML.lat = null; ML.lng = null; }
   });
   document.addEventListener('input', e => {

@@ -129,11 +129,14 @@ GM.stamp = function(el, delay){
 GM.flip = function(card, mid){
   if (!on() || !card) { mid(); return; }
   card._enter = true; card.classList.add('flipping'); g.killTweensOf(card);
-  g.set(card, {transformPerspective:900});
+  g.set(card, {transformPerspective:900, scaleX:1});
+  /* Vrai demi-tour : 0 → 90° (tranche), puis 90° → 180° avec un miroir pour que le contenu reste lisible.
+     Le côté qui s'éloigne continue de s'éloigner, il n'y a plus de « retour » parasite. */
   g.timeline({onComplete(){ card._enter = false; card.classList.remove('flipping'); g.set(card, {clearProps:'transform'}); }})
-    .to(card, {rotationY:90, y:-6, duration:.2, ease:'power2.in'})
+    .to(card, {rotationY:90, duration:.22, ease:'power2.in'})
     .add(mid)
-    .fromTo(card, {rotationY:-90}, {rotationY:0, y:0, duration:.38, ease:'power3.out'});
+    .set(card, {scaleX:-1})
+    .to(card, {rotationY:180, duration:.36, ease:'power3.out'});
 };
 
 /* ---------- Gestes courants ---------- */
@@ -318,37 +321,73 @@ GM.drawer = function(dw){
 };
 
 
-/* ---------- Fiche : la carte grandit depuis sa vignette jusqu'au centre ---------- */
-function growFrom(dw, src){
-  const r = dw.getBoundingClientRect();
-  if (!src || !r.width) return null;
-  const s = Math.min(1, src.width / r.width);
-  const dx = src.left + src.width / 2 - (r.left + r.width / 2), dy = src.top + src.height / 2 - (r.top + r.height / 2);
-  const vis = Math.min(r.height, src.height / s), cut = Math.max(0, (r.height - vis) / 2);
-  return {dx, dy, s, cut};
+/* ---------- Fiche : la vraie carte s'agrandit depuis sa place jusqu'au centre ---------- */
+const MODAL_PROPS = ['left','top','width','height','inset','margin','maxHeight','borderRadius','overflow'];
+function modalClean(dw){
+  MODAL_PROPS.forEach(k => { dw.style[k] = ''; });
+  $$('.dw-ghost', dw).forEach(n => n.remove());
+  const body = $('.dw-scroll', dw); if (body) { body.style.width = ''; body.style.flex = ''; body.style.opacity = ''; }
+  const close = $('.dw-close', dw); if (close) close.style.opacity = '';
+  if (dw._src) { dw._src.style.opacity = ''; dw._src = null; }
 }
+function ghost(card){
+  const c = card.cloneNode(true);
+  c.classList.remove('flipping', 'hl'); c.removeAttribute('data-k');
+  c.setAttribute('aria-hidden', 'true'); c.inert = true;
+  c.classList.add('dw-ghost');
+  c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;margin:0;transform:none;z-index:6;pointer-events:none;border:0;border-radius:inherit;box-shadow:none';
+  return c;
+}
+const isCard = el => !!(el && el.matches && el.matches('.card') && el.getBoundingClientRect().width > 8);
 GM.modalOpen = function(dw, scrim, src, done){
   if (!on() || !dw) return false;
-  g.killTweensOf([dw, scrim]);
-  const f = growFrom(dw, src), body = $('.dw-scroll', dw), close = $('.dw-close', dw);
+  g.killTweensOf([dw, scrim]); modalClean(dw);
   g.fromTo(scrim, {opacity:0}, {opacity:1, duration:.35, ease:'power2.out'});
-  if (!f) { g.fromTo(dw, {opacity:0, scale:.94, y:14}, {opacity:1, scale:1, y:0, duration:.4, ease:OUT, clearProps:'transform,opacity'}); return true; }
-  const rad = Math.round(16 / f.s);
-  g.fromTo(dw, {x:f.dx, y:f.dy, scale:f.s, clipPath:`inset(${f.cut}px 0px ${f.cut}px 0px round ${rad}px)`},
-    {x:0, y:0, scale:1, clipPath:'inset(0px 0px 0px 0px round 22px)', duration:.62, ease:'expo.out', clearProps:'transform,clipPath', onComplete(){ done && done(); }});
-  g.fromTo([body, close], {opacity:0}, {opacity:1, duration:.3, delay:.16, ease:'power1.out', clearProps:'opacity'});
+  const body = $('.dw-scroll', dw), close = $('.dw-close', dw);
+  if (!isCard(src)) {
+    g.fromTo(dw, {opacity:0, scale:.94, y:16}, {opacity:1, scale:1, y:0, duration:.4, ease:OUT, clearProps:'transform,opacity', onComplete(){ done && done(); }});
+    return true;
+  }
+  const r1 = dw.getBoundingClientRect(), r0 = src.getBoundingClientRect();
+  const gh = ghost(src); dw._src = src;
+  Object.assign(dw.style, {inset:'auto', margin:'0', maxHeight:'none', overflow:'hidden', left:r0.left + 'px', top:r0.top + 'px', width:r0.width + 'px', height:r0.height + 'px', borderRadius:'16px'});
+  body.style.width = r1.width + 'px'; body.style.flex = '0 0 auto'; body.style.opacity = '0'; close.style.opacity = '0';
+  dw.append(gh); src.style.opacity = '0';
+  const tl = g.timeline({onComplete(){ modalClean(dw); done && done(); }});
+  tl.to(dw, {left:r1.left, top:r1.top, width:r1.width, height:r1.height, borderRadius:22, duration:.6, ease:'power3.inOut'}, 0)
+    .to(gh, {opacity:0, duration:.3, ease:'power1.out'}, .1)
+    .to([body, close], {opacity:1, duration:.3, ease:'power1.out'}, .2);
   return true;
 };
 GM.modalClose = function(dw, scrim, src, done){
   if (!on() || !dw) { done(); return; }
   g.killTweensOf([dw, scrim]);
-  g.to(scrim, {opacity:0, duration:.3, ease:'power2.out'});
-  const f = growFrom(dw, src), body = $('.dw-scroll', dw), close = $('.dw-close', dw);
-  g.to([body, close], {opacity:0, duration:.14, ease:'power1.out'});
-  if (!f) { g.to(dw, {opacity:0, scale:.95, y:10, duration:.24, ease:OUT, onComplete:done}); return; }
-  const rad = Math.round(16 / f.s);
-  g.to(dw, {x:f.dx, y:f.dy, scale:f.s, clipPath:`inset(${f.cut}px 0px ${f.cut}px 0px round ${rad}px)`, duration:.4, ease:'power3.inOut', onComplete:done});
+  const body = $('.dw-scroll', dw), close = $('.dw-close', dw);
+  g.to(scrim, {opacity:0, duration:.32, ease:'power2.out'});
+  const r0 = isCard(src) ? src.getBoundingClientRect() : null;
+  const inView = r0 && r0.bottom > 0 && r0.top < innerHeight;
+  if (!inView) { modalClean(dw); g.to(dw, {opacity:0, scale:.95, y:10, duration:.24, ease:OUT, onComplete(){ g.set(dw, {clearProps:'transform,opacity'}); done(); }}); return; }
+  modalClean(dw);
+  const r1 = dw.getBoundingClientRect(), gh = ghost(src); dw._src = src;
+  Object.assign(dw.style, {inset:'auto', margin:'0', maxHeight:'none', overflow:'hidden', left:r1.left + 'px', top:r1.top + 'px', width:r1.width + 'px', height:r1.height + 'px'});
+  body.style.width = r1.width + 'px'; body.style.flex = '0 0 auto';
+  gh.style.opacity = '0'; dw.append(gh); src.style.opacity = '0';
+  const tl = g.timeline({onComplete(){ src.style.opacity = ''; modalClean(dw); done(); }});
+  tl.to([body, close], {opacity:0, duration:.16, ease:'power1.out'}, 0)
+    .to(gh, {opacity:1, duration:.22, ease:'power1.out'}, 0)
+    .to(dw, {left:r0.left, top:r0.top, width:r0.width, height:r0.height, borderRadius:16, duration:.42, ease:'power3.inOut'}, 0);
 };
+
+/* Hauteur qui se joue en douceur quand un bloc grandit ou rétrécit (onUpdate : garder un repère immobile). */
+GM.heightFrom = function(el, from, onUpdate, dur){
+  if (!on() || !el || from == null) return false;
+  const to = el.offsetHeight; if (Math.abs(to - from) < 2) return false;
+  g.killTweensOf(el);
+  el.style.overflow = 'hidden';
+  g.fromTo(el, {height:from}, {height:to, duration:dur || .42, ease:OUT, onUpdate, onComplete(){ el.style.height = ''; el.style.overflow = ''; onUpdate && onUpdate(); }});
+  return true;
+};
+GM.fadeIn = function(els){ if (on() && els && (els.length === undefined || els.length)) g.from(els, {opacity:0, y:6, duration:.35, delay:.08, ease:OUT, clearProps:'opacity,transform'}); };
 
 /* ---------- Coup de cœur : pluie de cœurs avec de la gravité ---------- */
 GM.burst = function(el, heartSVG){
