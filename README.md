@@ -10,7 +10,7 @@ Le site est hébergé par **GitHub Pages** et ses données sont dans **Supabase*
 
 ## Installation (une seule fois)
 
-### 1. Créer la base de données
+### 1. Créer la base de données (déjà fait)
 
 1. Sur [supabase.com](https://supabase.com), ouvre le projet `notre-gite`.
 2. Menu de gauche : **SQL Editor** → **New query**.
@@ -44,7 +44,7 @@ insert into public.admins (user_id)
 select id from auth.users where email = 'ton-prenom@notre-gite.example.com';
 ```
 
-### 5. Relier le site à la base
+### 5. Relier le site à la base (déjà fait)
 
 **Project Settings** → **API** (ou **Data API**) : copie l'**URL du projet** et la **clé publique** (« anon public » ou « publishable key »), puis colle-les dans [`config.js`](config.js).
 Ne mets **jamais** la clé « service_role » ou « secret » dans ce fichier.
