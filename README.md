@@ -61,6 +61,14 @@ Le site est alors disponible à l'adresse `https://<ton-compte>.github.io/notre-
 |---|---|
 | `index.html` | la page et ses styles |
 | `app.js` | toute l'application |
+| `motion.js` | le motion design (GSAP) : intro, transitions d'onglets, entrée des cartes, podium, carte, révélation du gagnant |
+| `vendor/gsap/` | GSAP 3.15.0 et ses plugins (ScrollTrigger, SplitText, DrawSVG, CustomEase, Physics2D), gratuits depuis 2025, copiés ici pour ne dépendre d'aucun CDN |
 | `france.js` | les contours des départements pour la carte |
 | `config.js` | l'adresse et la clé publique Supabase |
 | `supabase/setup.sql` | création de la base, des règles d'accès et du stockage des photos |
+
+## Animations
+
+Le bouton **Animations** coupe tout le motion design ; le réglage « réduire les animations » du système est respecté aussi.
+Les gestes fréquents (survol, clics) restent discrets ; les grandes séquences (intro, révélation du gagnant) sont réservées aux moments rares.
+Si `motion.js` ou GSAP ne se charge pas, le site retombe sur les animations CSS d'origine.
