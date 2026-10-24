@@ -120,7 +120,7 @@ h1,h2,h3,p{margin:0}
 /* Onglets */
 .bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:14px}
 .tabs{position:relative;display:flex;flex-wrap:wrap;gap:6px}
-.tab-ind{position:absolute;inset:0;background:var(--ink);border-radius:999px;pointer-events:none;clip-path:inset(0 100% 0 0 round 999px)}
+.tab-ind{position:absolute;inset:0;background:var(--ink);pointer-events:none;clip-path:inset(0 100% 0 0 round 999px)}
 .tab{position:relative;min-height:44px;padding:0 20px;border-radius:999px;border:1px solid var(--line);background:transparent;font-weight:700;font-size:15px;cursor:pointer;transition:color .2s ease,border-color .2s ease}
 .tab[aria-selected="true"]{color:var(--card);border-color:transparent}
 @media (hover:hover) and (pointer:fine){.tab[aria-selected="false"]:hover{border-color:var(--line-strong)}}
@@ -457,6 +457,7 @@ html{scrollbar-color:var(--line-strong) var(--paper)}
 .news li>*{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:14px;color:var(--ink)}
 .news li>button{cursor:pointer;font-weight:700}
 @media (hover:hover) and (pointer:fine){.news li>button:hover{border-color:var(--line-strong)}}
+@media (max-width:640px){.news{padding:14px}.news ul{flex:1 1 100%}.news li>*{max-width:100%;white-space:normal;padding:6px 12px;line-height:1.3}}
 
 /* Sondage de dates */
 .dt{min-width:780px;font-size:14px}
