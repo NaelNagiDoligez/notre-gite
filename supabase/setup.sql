@@ -1,0 +1,93 @@
+-- Notre gîte d'été : installation de la base Supabase.
+-- À coller une seule fois dans Supabase > SQL Editor > New query, puis « Run ».
+
+-- 1. Les données du carnet : un document JSON par élément (logement, vote, commentaire…)
+create table if not exists public.docs (
+  path        text primary key,            -- ex. listings/ab12…, votes/<id de la personne>
+  collection  text not null,               -- ex. listings, votes, members, comments, config, trip
+  data        jsonb not null default '{}'::jsonb,
+  updated_by  uuid default auth.uid(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists docs_collection_idx on public.docs (collection);
+
+-- 2. Les organisateurs (peuvent supprimer des logements, modifier les critères, clore les votes)
+create table if not exists public.admins (
+  user_id uuid primary key references auth.users on delete cascade
+);
+
+-- 3. Règles d'accès : seules les personnes connectées lisent et écrivent
+alter table public.docs   enable row level security;
+alter table public.admins enable row level security;
+
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.admins where user_id = auth.uid());
+$$;
+
+-- Qui peut écrire quoi :
+--   config/…          : organisateurs seulement
+--   members/<id>, votes/<id> : la personne elle-même (ou un organisateur)
+--   le reste (logements, commentaires, voyage) : toute personne connectée
+create or replace function public.can_write(p text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case split_part(p, '/', 1)
+    when 'config'  then public.is_admin()
+    when 'members' then public.is_admin() or split_part(p, '/', 2) = auth.uid()::text
+    when 'votes'   then public.is_admin() or split_part(p, '/', 2) = auth.uid()::text
+    else auth.uid() is not null
+  end;
+$$;
+
+drop policy if exists "lecture" on public.docs;
+create policy "lecture" on public.docs for select to authenticated using (true);
+drop policy if exists "ajout" on public.docs;
+create policy "ajout" on public.docs for insert to authenticated
+  with check (public.can_write(path) and collection = split_part(path, '/', 1));
+drop policy if exists "modification" on public.docs;
+create policy "modification" on public.docs for update to authenticated
+  using (public.can_write(path)) with check (public.can_write(path) and collection = split_part(path, '/', 1));
+drop policy if exists "suppression" on public.docs;
+create policy "suppression" on public.docs for delete to authenticated using (public.can_write(path));
+
+drop policy if exists "lecture admins" on public.admins;
+create policy "lecture admins" on public.admins for select to authenticated using (true);
+
+-- 4. Mises à jour en direct (quand quelqu'un vote, tout le monde le voit)
+do $$ begin
+  alter publication supabase_realtime add table public.docs;
+exception when duplicate_object then null; end $$;
+
+-- 5. Les photos des logements
+insert into storage.buckets (id, name, public) values ('photos', 'photos', true)
+on conflict (id) do nothing;
+drop policy if exists "photos ajout" on storage.objects;
+create policy "photos ajout" on storage.objects for insert to authenticated
+  with check (bucket_id = 'photos');
+drop policy if exists "photos suppression" on storage.objects;
+create policy "photos suppression" on storage.objects for delete to authenticated
+  using (bucket_id = 'photos' and (owner = auth.uid() or public.is_admin()));
+
+-- 6. Réglages de départ du carnet
+insert into public.docs (path, collection, data) values
+('config/main', 'config', '{
+  "title": "Notre gîte d''été",
+  "criteria": [
+    {"id": "prix", "label": "Prix"},
+    {"id": "lieu", "label": "Localisation"},
+    {"id": "confort", "label": "Confort et équipements"},
+    {"id": "ambiance", "label": "Photos et ambiance"},
+    {"id": "couchages", "label": "Couchages"},
+    {"id": "activites", "label": "Activités autour"}
+  ],
+  "statuses": [
+    {"id": "propose", "label": "Proposé"},
+    {"id": "discussion", "label": "En discussion"},
+    {"id": "preselection", "label": "Présélectionné"},
+    {"id": "reserve", "label": "Réservé"}
+  ],
+  "perms": {"deleteListing": "owner", "editCriteria": "owner", "closeVotes": "owner", "changeStatus": "all"},
+  "closed": false, "closedAt": null
+}'::jsonb),
+('trip/main', 'trip', '{"destination": "France", "periode": "Été, dates à définir", "budget": ""}'::jsonb)
+on conflict (path) do nothing;

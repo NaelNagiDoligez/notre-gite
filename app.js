@@ -1,0 +1,1713 @@
+// Notre gîte d'été : application (voir README.md)
+(function(){
+'use strict';
+
+/* ---------- Données fixes ---------- */
+const FR = window.FR_DATA;
+const DEP = {}; const DEP_LIST = [];
+FR.d.forEach(r => { const o = {c:r[0], n:r[1], d:r[2], cx:r[3], cy:r[4]}; DEP[o.c] = o; DEP_LIST.push(o); });
+const project = (lat, lng) => [(lng * FR.k - FR.minx) * FR.s + FR.pad, (-lat - FR.miny) * FR.s + FR.pad];
+
+const DEFAULT_CONFIG = {
+  title: "Notre gîte d'été",
+  criteria: [
+    {id:'prix', label:'Prix'},
+    {id:'lieu', label:'Localisation'},
+    {id:'confort', label:'Confort et équipements'},
+    {id:'ambiance', label:'Photos et ambiance'},
+    {id:'couchages', label:'Couchages'},
+    {id:'activites', label:'Activités autour'}
+  ],
+  statuses: [
+    {id:'propose', label:'Proposé'}, {id:'discussion', label:'En discussion'},
+    {id:'preselection', label:'Présélectionné'}, {id:'reserve', label:'Réservé'}
+  ],
+  perms: {deleteListing:'owner', editCriteria:'owner', closeVotes:'owner', changeStatus:'all'},
+  closed: false, closedAt: null
+};
+const VIEWS = ['galerie','comparateur','podium','carte','dates'];
+const TRIP_FIELDS = [['destination','Destination','France'],['periode','Période','Dates à définir'],['budget','Budget','À définir']];
+const SOURCES = [['airbnb','Airbnb'],['booking.','Booking.com'],['abritel','Abritel'],['vrbo','Vrbo'],['gites-de-france','Gîtes de France'],['leboncoin','Leboncoin'],['clevacances','Clévacances'],['expedia','Expedia'],['interhome','Interhome'],['belvilla','Belvilla'],['papvacances','PAP Vacances'],['homeexchange','HomeExchange'],['tripadvisor','Tripadvisor']];
+const EASE_OUT = 'cubic-bezier(0.23,1,0.32,1)', EASE_IO = 'cubic-bezier(0.77,0,0.175,1)', EASE_BACK = 'cubic-bezier(0.34,1.56,0.64,1)';
+const POP = [{transform:'scale(1)'}, {transform:'scale(1.4)'}, {transform:'scale(1)'}];
+
+const IC = {
+  house:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/></svg>',
+  yes:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  maybe:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 13c2.5-3 4.5-3 7 0s4.5 3 7 0"/></svg>',
+  no:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  heart:'<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+  ban:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/></svg>',
+  lock:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  x:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  ext:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  pen:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
+  chev:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>'
+};
+
+/* ---------- Utilitaires ---------- */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl = u => { try { const x = new URL(String(u).trim()); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (e) { return ''; } };
+const num = v => { if (v == null || v === '') return null; const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[\s  €]/g, '').replace(',', '.')); return isFinite(n) ? n : null; };
+const int = v => { const n = num(v); return n == null ? null : Math.max(0, Math.round(n)); };
+const fmtPrice = n => n == null ? 'Prix à préciser' : new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(n);
+const fmtScore = n => n == null || !isFinite(n) ? '–' : n.toFixed(1).replace('.', ',');
+const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('fr-FR', {day:'numeric', month:'short'}) : '';
+const fmtLong = ts => ts ? new Date(ts).toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'}) : '';
+const plural = (n, w, ws) => n + ' ' + (n > 1 ? (ws || w + 's') : w);
+const hashN = (s, n) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h) % n; };
+const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
+};
+function relTime(ts){
+  if (!ts) return '';
+  const d = (Date.now() - ts) / 1000;
+  if (d < 60) return 'à l’instant';
+  if (d < 3600) return 'il y a ' + Math.floor(d / 60) + ' min';
+  if (d < 86400) return 'il y a ' + Math.floor(d / 3600) + ' h';
+  if (d < 172800) return 'hier';
+  return 'le ' + fmtDate(ts);
+}
+const depLabel = c => DEP[c] ? DEP[c].n + ' (' + c + ')' : (c === 'autre' ? 'Hors métropole' : (c || ''));
+const placeOf = l => [l.commune, depLabel(l.dept)].filter(Boolean).join(' · ') || 'Lieu à préciser';
+let SB = null;
+const photoUrl = id => SB ? SB.storage.from('photos').getPublicUrl(id).data.publicUrl : '';
+const PHOTO_ID = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.(?:jpg|png|webp)$/;
+
+/* ---------- Mouvement ---------- */
+const reducedPref = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let motion = (() => { const v = store.get('gite-motion'); return v ? v === 'on' : !reducedPref; })();
+const M = () => motion;
+function applyMotion(){
+  document.documentElement.dataset.motion = motion ? 'on' : 'off';
+  const b = $('#motion-btn'); if (b) b.setAttribute('aria-pressed', String(motion));
+}
+function anim(el, kf, opts){ if (!M() || !el || !el.animate) return null; try { return el.animate(kf, opts); } catch (e) { return null; } }
+function flipCapture(root){ const m = new Map(); if (!root) return m; $$('[data-k]', root).forEach(el => m.set(el.dataset.k, el.getBoundingClientRect())); return m; }
+function flipPlay(root, before, enter){
+  if (!root || !M()) return;
+  let n = 0;
+  $$('[data-k]', root).forEach(el => {
+    const b = before.get(el.dataset.k);
+    if (b) {
+      const r = el.getBoundingClientRect(); const dx = b.left - r.left, dy = b.top - r.top;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) anim(el, [{transform:`translate(${dx}px,${dy}px)`}, {transform:'none'}], {duration:480, easing:EASE_IO});
+    } else if (enter !== false) {
+      anim(el, [{opacity:0, transform:'translateY(24px) scale(.95) rotate(-0.8deg)'}, {opacity:1, transform:'none'}], {duration:600, delay:Math.min(n++, 10) * 60, easing:EASE_OUT, fill:'backwards'});
+    }
+  });
+}
+function countUp(el, to, dur){
+  if (!el) return;
+  if (!M() || to == null || !dur) { el.textContent = fmtScore(to); return; }
+  const t0 = performance.now();
+  const step = t => { const p = Math.min(1, (t - t0) / dur); const e = 1 - Math.pow(1 - p, 4); el.textContent = fmtScore(to * e); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+/* ---------- État ---------- */
+const S = {
+  booted:false, db:null, user:null, sample:null, assets:null, downloads:null,
+  myId:null, isOwner:false, readOnly:false, meName:'',
+  config:null, trip:{}, members:{}, votes:{}, listings:{}, comments:{},
+  loaded:{members:false, listings:false, votes:false},
+  view:'galerie', f:{dept:'', status:'', sort:'score'}, cmp:{key:'overall', dir:-1},
+  openId:null, mapSel:null, myVoteDirty:false, onboardShown:false, confirmClose:false, dwConfirm:false,
+  st:{}, unlockedSeen:new Set(), highlight:null, revealPlayed:false,
+  navDir:0, newsHidden:false, prevMarks:{}, focusWeek:null, popBtn:null
+};
+const cfg = () => Object.assign({}, DEFAULT_CONFIG, S.config || {});
+const crits = () => (Array.isArray(cfg().criteria) && cfg().criteria.length ? cfg().criteria : DEFAULT_CONFIG.criteria);
+const statuses = () => (Array.isArray(cfg().statuses) && cfg().statuses.length ? cfg().statuses : DEFAULT_CONFIG.statuses);
+const listingsArr = () => Object.values(S.listings);
+const memberIds = () => Object.keys(S.members);
+const isPayer = () => true; /* plus de distinction : tout le monde note tous les critères */
+const nameOf = uid => (S.members[uid] && S.members[uid].name) || 'Quelqu’un';
+const votesOf = uid => S.votes[uid] || {scores:{}, heart:null, veto:null};
+const canEdit = () => !!S.db && !!S.myId && !S.readOnly;
+const wouldVote = () => canEdit() && !cfg().closed;
+const canVote = () => wouldVote() && !!S.members[S.myId];
+const applicable = uid => crits().filter(c => !c.payersOnly || isPayer(uid));
+function hasCompleted(uid, lid){
+  if (!uid) return false;
+  const sc = (votesOf(uid).scores || {})[lid] || {}; const ap = applicable(uid);
+  return ap.length > 0 && ap.every(c => typeof sc[c.id] === 'number');
+}
+const canSee = lid => !wouldVote() || hasCompleted(S.myId, lid);
+
+function stats(lid){
+  const per = {}; const ids = memberIds();
+  crits().forEach(c => {
+    const vals = [];
+    for (const uid of ids) {
+      if (c.payersOnly && !isPayer(uid)) continue;
+      const v = ((votesOf(uid).scores || {})[lid] || {})[c.id];
+      if (typeof v === 'number') vals.push(v);
+    }
+    per[c.id] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  });
+  const avgs = crits().map(c => per[c.id]).filter(v => v != null);
+  const overall = avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null;
+  const hearts = [], vetos = []; let voted = 0;
+  for (const uid of ids) {
+    const v = votesOf(uid);
+    if (v.heart === lid) hearts.push(uid);
+    if (v.veto === lid) vetos.push(uid);
+    if (hasCompleted(uid, lid)) voted++;
+  }
+  return {per, overall, hearts, vetos, voted, total:ids.length};
+}
+function computeStats(){ const o = {}; listingsArr().forEach(l => { o[l.id] = stats(l.id); }); return o; }
+const st = lid => S.st[lid] || stats(lid);
+function ranking(){
+  return listingsArr().map(l => ({l, s:st(l.id)})).sort((a, b) => {
+    const oa = a.s.overall == null ? -1 : a.s.overall, ob = b.s.overall == null ? -1 : b.s.overall;
+    if (ob !== oa) return ob - oa;
+    if (b.s.hearts.length !== a.s.hearts.length) return b.s.hearts.length - a.s.hearts.length;
+    return (a.l.createdAt || 0) - (b.l.createdAt || 0);
+  });
+}
+function statusOf(l){ const ss = statuses(); let i = ss.findIndex(s => s.id === l.status); if (i < 0) i = 0; return {i, s:ss[i]}; }
+const chipHTML = l => { const o = statusOf(l); return `<span class="chip st${o.i % 4 + 1}">${esc(o.s.label)}</span>`; };
+const avatar = (uid, cls) => { const n = nameOf(uid); return `<span class="av av${hashN(uid, 6) + 1} ${cls || ''}" title="${esc(n)}" aria-hidden="true">${esc((n.trim()[0] || '?').toUpperCase())}</span>`; };
+function photoHTML(l, extra){
+  const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
+  if (l.photo && PHOTO_ID.test(l.photo)) return `<div class="ph ${tint}"><img src="${esc(photoUrl(l.photo))}" alt="" loading="lazy" data-fb>${extra || ''}</div>`;
+  return `<div class="ph ${tint}">${IC.house}${extra || ''}</div>`;
+}
+function pinPos(l){
+  const lat = num(l.lat), lng = num(l.lng);
+  if (lat != null && lng != null && lat > 41 && lat < 51.5 && lng > -5.5 && lng < 10) return project(lat, lng);
+  const d = DEP[l.dept]; if (!d) return null;
+  const a = hashN(l.id, 360) * Math.PI / 180, r = 4 + hashN(l.id + 'r', 9);
+  return [d.cx + Math.cos(a) * r, d.cy + Math.sin(a) * r];
+}
+
+/* ---------- Écriture ---------- */
+const writeQ = {};
+function writeDoc(path, data){
+  const prev = writeQ[path] || Promise.resolve();
+  const p = prev.catch(() => {}).then(() => S.db.doc(path).set(data));
+  writeQ[path] = p;
+  p.catch(onWriteError);
+  return p;
+}
+function onWriteError(e){
+  const c = e && e.code;
+  if (c === 'invalid_argument') { S.readOnly = true; toast('Modification refusée : ton accès ne permet pas d’écrire ici.'); schedule(); }
+  else if (c === 'quota_exceeded') toast('Le carnet est plein : supprime des éléments pour en ajouter.');
+  else if (c === 'resource_exhausted') toast('Trop de modifications d’un coup, attends un instant.');
+  else toast('Connexion instable : la modification n’est pas passée, réessaie.');
+}
+let voteTimer = 0;
+function editMyVote(fn){
+  const cur = S.votes[S.myId];
+  const v = cur ? JSON.parse(JSON.stringify(cur)) : {scores:{}, heart:null, veto:null};
+  v.scores = v.scores || {};
+  fn(v); v.updatedAt = Date.now();
+  S.votes[S.myId] = v; S.myVoteDirty = true;
+}
+function saveVote(now){ clearTimeout(voteTimer); setSave('Enregistrement…'); voteTimer = setTimeout(flushVote, now ? 0 : 550); }
+function flushVote(){
+  const v = S.votes[S.myId]; if (!v) return;
+  writeDoc('votes/' + S.myId, JSON.parse(JSON.stringify(v))).then(() => {
+    if (S.votes[S.myId] === v) S.myVoteDirty = false;
+    setSave('Enregistré');
+  }).catch(() => setSave(''));
+}
+function setSave(t){ const el = $('#dw-save'); if (el) el.textContent = t; }
+
+/* ---------- Pastilles coup de cœur / veto ---------- */
+function badgesHTML(l, s, inter, inline){
+  const out = [];
+  const one = (kind, ids, icon, label) => {
+    if (!ids.length) return;
+    const cls = `pas pas-${kind}${inter ? '' : ' pas-static'}`;
+    if (inter) out.push(`<button type="button" class="${cls}" data-pop="${kind}" data-lid="${esc(l.id)}" aria-label="${esc(label)} : voir qui et pourquoi">${icon}${ids.length}</button>`);
+    else out.push(`<span class="${cls}" aria-label="${esc(label)}">${icon}${ids.length}</span>`);
+  };
+  one('heart', s.hearts, IC.heart, plural(s.hearts.length, 'coup de cœur', 'coups de cœur'));
+  one('veto', s.vetos, IC.ban, plural(s.vetos.length, 'veto'));
+  return out.length ? `<span class="${inline ? 'badges-inline' : 'ph-badges'}">${out.join('')}</span>` : '';
+}
+function marksList(kind, ids){
+  return `<ul class="mk-list">${ids.map(u => {
+    const why = votesOf(u)[kind === 'heart' ? 'heartWhy' : 'vetoWhy'];
+    return `<li>${avatar(u, 'av-sm')}<div><strong>${esc(nameOf(u))}</strong><p class="why">${why ? '« ' + esc(why) + ' »' : 'Pas de raison donnée'}</p></div></li>`;
+  }).join('')}</ul>`;
+}
+const markTitle = (kind, n) => `<p class="mk-t ${kind === 'heart' ? 'mk-heart' : 'mk-veto'}">${kind === 'heart' ? IC.heart : IC.ban}${esc(kind === 'heart' ? plural(n, 'coup de cœur', 'coups de cœur') : plural(n, 'veto'))}</p>`;
+function marksHTML(s){
+  let h = '';
+  if (s.hearts.length) h += `<div class="marks">${markTitle('heart', s.hearts.length)}${marksList('heart', s.hearts)}</div>`;
+  if (s.vetos.length) h += `<div class="marks">${markTitle('veto', s.vetos.length)}${marksList('veto', s.vetos)}</div>`;
+  return h;
+}
+function openPop(btn){
+  const lid = btn.dataset.lid, kind = btn.dataset.pop, l = S.listings[lid]; if (!l) return;
+  const pop = $('#pop');
+  if (!pop.hidden && pop.dataset.for === kind + lid) { closePop(); return; }
+  const s = st(lid); const ids = kind === 'heart' ? s.hearts : s.vetos;
+  pop.dataset.for = kind + lid;
+  pop.setAttribute('aria-label', (kind === 'heart' ? 'Coups de cœur' : 'Veto') + ' : ' + (l.title || ''));
+  pop.innerHTML = `${markTitle(kind, ids.length)}<p class="small muted">${esc(l.title)}</p>${marksList(kind, ids)}<div><button type="button" class="btn btn-sm" data-open="${esc(lid)}">Ouvrir la fiche</button></div>`;
+  pop.hidden = false;
+  const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(innerWidth - w - 16, Math.max(16, r.right - w));
+  let top = r.bottom + 8; if (top + h > innerHeight - 16) top = Math.max(16, r.top - h - 8);
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  anim(pop, [{opacity:0, transform:'translateY(-8px) scale(.95)'}, {opacity:1, transform:'none'}], {duration:260, easing:EASE_BACK});
+  $$('.mk-list li', pop).forEach((li, i) => anim(li, [{opacity:0, transform:'translateX(8px)'}, {opacity:1, transform:'none'}], {duration:300, delay:60 + i * 50, easing:EASE_OUT, fill:'backwards'}));
+  S.popBtn = btn;
+  const f = $('button', pop); if (f) f.focus({preventScroll:true});
+}
+function closePop(){ const p = $('#pop'); if (!p || p.hidden) return; p.hidden = true; p.dataset.for = ''; }
+function burst(el){
+  if (!M() || !el) return;
+  const r = el.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  for (let i = 0; i < 9; i++) {
+    const s = document.createElement('span'); s.className = 'burst'; s.innerHTML = IC.heart;
+    s.style.left = (cx - 8) + 'px'; s.style.top = (cy - 8) + 'px'; document.body.append(s);
+    const a = (i / 9) * Math.PI * 2 + Math.random() * 0.5, d = 38 + Math.random() * 30;
+    const an = s.animate([{transform:'translate(0,0) scale(.3)', opacity:1}, {transform:`translate(${(Math.cos(a) * d).toFixed(1)}px,${(Math.sin(a) * d - 16).toFixed(1)}px) scale(${(0.6 + Math.random() * 0.6).toFixed(2)})`, opacity:0}], {duration:650 + Math.random() * 250, easing:EASE_OUT});
+    an.onfinish = () => s.remove(); an.oncancel = () => s.remove();
+  }
+}
+function podiumEntrance(el){
+  if (!M()) return;
+  const delays = {r3:0, r2:170, r1:340};
+  $$('.stage .step', el).forEach(stp => {
+    const k = ['r1', 'r2', 'r3'].find(c => stp.classList.contains(c)); const d = delays[k] || 0;
+    anim($('.plinth', stp), [{transform:'scaleY(0)'}, {transform:'none'}], {duration:680, delay:d, easing:EASE_BACK, fill:'backwards'});
+    anim($('.step-card', stp), [{opacity:0, transform:'translateY(-28px)'}, {opacity:1, transform:'none'}], {duration:560, delay:d + 300, easing:EASE_OUT, fill:'backwards'});
+    const sc = $('.step-score', stp); if (sc) { const v = num(sc.dataset.score); sc.textContent = fmtScore(0); setTimeout(() => countUp(sc, v, 900), d + 320); }
+  });
+  $$('.rest li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'translateX(-14px)'}, {opacity:1, transform:'none'}], {duration:420, delay:620 + i * 55, easing:EASE_OUT, fill:'backwards'}));
+}
+
+/* ---------- Doublons ---------- */
+function normUrl(u){
+  try { const x = new URL(String(u).trim()); const parts = x.hostname.replace(/^www\./, '').split('.'); const site = parts.length >= 2 ? parts[parts.length - 2] : parts[0]; return (site + x.pathname.replace(/\/+$/, '')).toLowerCase(); }
+  catch (e) { return ''; }
+}
+function checkDup(){
+  const box = $('#li-dup'); if (!box) return;
+  const k = normUrl($('#li-url').value);
+  const hit = k ? listingsArr().find(l => l.id !== ML.editId && normUrl(l.url) === k) : null;
+  if (!hit) { box.hidden = true; box.innerHTML = ''; return; }
+  const was = box.hidden;
+  box.innerHTML = `<span>Cette annonce est déjà dans le carnet : <strong>${esc(hit.title)}</strong>, proposée par ${esc(nameOf(hit.addedBy))}.</span><button type="button" class="btn btn-sm" data-dupopen="${esc(hit.id)}">Ouvrir la fiche</button>`;
+  box.hidden = false;
+  if (was) anim(box, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:320, easing:EASE_BACK});
+}
+
+/* ---------- Sondage de dates ---------- */
+const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const dShort = d => d.toLocaleDateString('fr-FR', {day:'numeric', month:'short'});
+function summerWeeks(){
+  const now = new Date(); const y = now.getMonth() >= 8 ? now.getFullYear() + 1 : now.getFullYear();
+  const d = new Date(y, 5, 19); while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
+  const out = []; const stop = new Date(y, 7, 29);
+  while (d < stop) { const e = new Date(d); e.setDate(e.getDate() + 7); out.push({id:ymd(d), s:new Date(d), e}); d.setDate(d.getDate() + 7); }
+  return out;
+}
+const WEEKS = summerWeeks(); const YEAR = WEEKS[0].s.getFullYear();
+const weekLabel = w => dShort(w.s) + ' → ' + dShort(w.e);
+function weekStats(){
+  const ids = memberIds();
+  return WEEKS.map(w => { let yes = 0, maybe = 0, no = 0; ids.forEach(u => { const a = (votesOf(u).avail || {})[w.id]; if (a === 2) yes++; else if (a === 1) maybe++; else if (a === 0) no++; }); return {w, yes, maybe, no, score:yes + maybe * 0.5}; });
+}
+function bestWeek(){
+  const ws = weekStats(); if (!ws.some(x => x.yes + x.maybe > 0)) return null;
+  return ws.slice().sort((a, b) => b.score - a.score || b.yes - a.yes || a.no - b.no)[0];
+}
+function periodSub(){
+  const t = S.trip || {}; if (t.week) return '';
+  const b = bestWeek();
+  if (b) return `<button type="button" class="tf-sub" data-view="dates">Sondage : ${esc(weekLabel(b.w))} en tête</button>`;
+  return canEdit() ? '<button type="button" class="tf-sub" data-view="dates">Donner mes disponibilités</button>' : '';
+}
+function cycleWeek(wid){
+  if (!canEdit()) return;
+  if (!S.members[S.myId]) { openSettings(true); return; }
+  editMyVote(v => {
+    v.avail = Object.assign({}, v.avail || {});
+    const a = v.avail[wid]; const n = (a === 2) ? 1 : (a === 1) ? 0 : (a === 0) ? null : 2;
+    if (n === null) delete v.avail[wid]; else v.avail[wid] = n;
+  });
+  saveVote(false); S.focusWeek = wid; schedule();
+}
+function fixWeek(wid){
+  const w = WEEKS.find(x => x.id === wid); if (!w || !S.isOwner || !canEdit()) return;
+  const f = d => d.toLocaleDateString('fr-FR', {day:'numeric', month:'long'});
+  S.trip = Object.assign({}, S.trip, {week:wid, periode:'Du ' + f(w.s) + ' au ' + f(w.e) + ' ' + YEAR, updatedAt:Date.now()});
+  writeDoc('trip/main', S.trip).then(() => toast('Semaine retenue'));
+  schedule();
+}
+function fillDates(changed){
+  const el = $('#dates'); if (!el) return;
+  const ids = memberIds(); const me = S.myId; const t = S.trip || {};
+  const ws = weekStats(); const best = bestWeek(); const max = Math.max(1, ids.length);
+  const canMark = canEdit() && !!S.members[me];
+  const order = ids.slice().sort((a, b) => a === me ? -1 : b === me ? 1 : nameOf(a).localeCompare(nameOf(b), 'fr'));
+  const hl = w => (t.week ? t.week === w.id : (best && best.w.id === w.id)) ? ' class="best"' : '';
+  const ICO = {2:IC.yes, 1:IC.maybe, 0:IC.no}, TXT = {2:'disponible', 1:'peut-être', 0:'pas disponible'};
+  const cell = (u, w) => {
+    const a = (votesOf(u).avail || {})[w.id]; const has = a === 0 || a === 1 || a === 2;
+    const lab = weekLabel(w) + ' : ' + (has ? TXT[a] : 'pas de réponse');
+    if (u === me && canMark) return `<td${hl(w)}><button type="button" class="dc${has ? ' s' + a : ''}" data-week="${w.id}" aria-label="${esc('Ma réponse, ' + lab)}">${has ? ICO[a] : ''}</button></td>`;
+    return `<td${hl(w)}><span class="dc${has ? ' s' + a : ''}" role="img" aria-label="${esc(nameOf(u) + ', ' + lab)}">${has ? ICO[a] : ''}</span></td>`;
+  };
+  let card;
+  const owner = S.isOwner && canEdit();
+  if (t.week) {
+    const w = WEEKS.find(x => x.id === t.week);
+    card = `<div><p class="lab">Semaine retenue</p><p class="big">${esc(w ? weekLabel(w) : (t.periode || ''))}</p></div>${owner ? '<button type="button" class="btn" data-act="unfix-week">Changer de semaine</button>' : ''}`;
+  } else if (best) {
+    card = `<div><p class="lab">En tête du sondage</p><p class="big">${esc(weekLabel(best.w))}</p><p>${best.yes} dispo · ${best.maybe} peut-être · ${best.no} pas dispo, sur ${esc(plural(ids.length, 'inscrit'))}</p></div>${owner ? `<button type="button" class="btn" data-fixweek="${best.w.id}">Retenir cette semaine</button>` : ''}`;
+  } else card = '<div><p class="big">Personne n’a encore répondu</p><p>Coche tes semaines possibles : la meilleure apparaîtra ici et dans le bandeau.</p></div>';
+  const table = ids.length ? `<div class="tbl-wrap"><table class="dt"><thead><tr><th scope="col" style="text-align:left;padding-left:12px">Personne</th>${WEEKS.map(w => `<th scope="col"${hl(w)}>${esc(dShort(w.s))}<br><span style="font-weight:600">→ ${esc(dShort(w.e))}</span></th>`).join('')}</tr></thead>
+    <tbody>${order.map(u => `<tr><th scope="row">${esc(nameOf(u))}${u === me ? ' <span class="muted" style="font-weight:600">(toi)</span>' : ''}</th>${WEEKS.map(w => cell(u, w)).join('')}</tr>`).join('')}</tbody>
+    <tfoot><tr><th scope="row" style="text-align:left;padding-left:12px">Total</th>${ws.map(x => `<td${hl(x.w)}><div class="wbar"><span class="col"><span style="transform:scaleY(${(x.score / max).toFixed(3)})"></span></span><span class="num small">${x.yes}${x.maybe ? ' + ' + x.maybe : ''}</span></div></td>`).join('')}</tr></tfoot></table></div>
+    <div class="legend-d"><span><span class="dc s2">${IC.yes}</span>Dispo</span><span><span class="dc s1">${IC.maybe}</span>Peut-être</span><span><span class="dc s0">${IC.no}</span>Pas dispo</span><span>Sous chaque semaine : nombre de « dispo » + « peut-être ». Un « peut-être » compte pour une demi-voix.</span></div>`
+    : '<p class="muted">Personne n’est encore inscrit.</p>';
+  const html = `<div class="pod-head"><div><h2 class="h2" style="font-size:34px">Quand partir à l’été ${YEAR} ?</h2><p class="muted" style="max-width:62ch;margin-top:6px">Indique tes disponibilités semaine par semaine, du samedi au samedi. Un clic sur ta case passe de « dispo » à « peut-être », puis « pas dispo », puis la vide.</p></div></div>
+    <section class="best-card">${card}</section>
+    ${canEdit() && !S.members[me] ? '<p class="banner">Choisis ton prénom pour répondre au sondage. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>' : ''}
+    ${table}`;
+  if (el._h !== html) {
+    el.innerHTML = html; el._h = html;
+    if (changed && M()) {
+      anim($('.best-card', el), [{opacity:0, transform:'translateY(12px) scale(.98)'}, {opacity:1, transform:'none'}], {duration:520, delay:80, easing:EASE_OUT, fill:'backwards'});
+      $$('tbody tr', el).forEach((tr, r) => $$('.dc', tr).forEach((c, i) => anim(c, [{opacity:0, transform:'scale(.5)'}, {opacity:1, transform:'none'}], {duration:380, delay:220 + r * 60 + i * 28, easing:EASE_BACK, fill:'backwards'})));
+      $$('.wbar .col span', el).forEach((b, i) => { const fin = b.style.transform; anim(b, [{transform:'scaleY(0)'}, {transform:fin}], {duration:800, delay:300 + i * 45, easing:EASE_OUT, fill:'backwards'}); });
+    }
+  }
+  if (S.focusWeek) {
+    const b = $(`[data-week="${CSS.escape(S.focusWeek)}"]`, el);
+    if (b) { b.focus({preventScroll:true}); anim(b, [{transform:'scale(.8)'}, {transform:'scale(1.12)'}, {transform:'none'}], {duration:380, easing:EASE_OUT}); }
+    S.focusWeek = null;
+  }
+}
+
+/* ---------- Depuis ta dernière visite ---------- */
+function renderNews(){
+  const el = $('#news'); const me = S.myId; const since = S.seenPrev;
+  const off = () => { el.hidden = true; el._h = ''; };
+  if (S.newsHidden || !since || !me) return off();
+  const items = [];
+  memberIds().filter(u => u !== me && (S.members[u].joinedAt || 0) > since).forEach(u => items.push(`<li><span>${esc(nameOf(u))} a rejoint le carnet</span></li>`));
+  listingsArr().filter(l => l.addedBy !== me && (l.createdAt || 0) > since).sort((a, b) => b.createdAt - a.createdAt)
+    .forEach(l => items.push(`<li><button type="button" data-open="${esc(l.id)}">${esc(nameOf(l.addedBy))} a proposé « ${esc(l.title)} »</button></li>`));
+  const byL = {}; Object.values(S.comments).filter(c => c.by !== me && (c.at || 0) > since && S.listings[c.lid]).forEach(c => { byL[c.lid] = (byL[c.lid] || 0) + 1; });
+  Object.keys(byL).forEach(lid => items.push(`<li><button type="button" data-open="${esc(lid)}">${esc(plural(byL[lid], 'commentaire'))} sur « ${esc(S.listings[lid].title)} »</button></li>`));
+  const voters = memberIds().filter(u => u !== me && (votesOf(u).updatedAt || 0) > since);
+  if (voters.length) items.push(`<li><span>${esc(voters.map(nameOf).join(', '))} ${voters.length > 1 ? 'ont' : 'a'} voté</span></li>`);
+  if (!items.length) return off();
+  const html = `<p class="news-t">Depuis ta dernière visite</p><ul>${items.slice(0, 8).join('')}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
+  if (el._h === html) return;
+  const first = el.hidden; el.innerHTML = html; el._h = html; el.hidden = false;
+  if (first) { anim(el, [{opacity:0, transform:'translateY(-10px)'}, {opacity:1, transform:'none'}], {duration:480, easing:EASE_OUT}); $$('li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'none'}], {duration:360, delay:160 + i * 60, easing:EASE_BACK, fill:'backwards'})); }
+}
+
+/* ---------- Connexion et base de données (Supabase) ---------- */
+const MAIL_DOMAIN = 'notre-gite.example.com';
+const slug = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+const cap1 = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const newId = () => ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/-/g, '').slice(0, 20);
+function sbErr(e){
+  const m = (e && e.message) || '';
+  const refused = e && (e.code === '42501' || /row-level security|permission denied/i.test(m));
+  return {code: refused ? 'invalid_argument' : 'unavailable', message: m};
+}
+/* Même interface que la base des pages Claude : doc(chemin) / collection(nom), lecture en direct. */
+function makeDb(sb, uid){
+  const cache = new Map(); const docL = new Map(); const colL = new Map(); const loaded = new Set();
+  const colOf = p => p.split('/').slice(0, -1).join('/');
+  const meta = {fromCache:false, hasPendingWrites:false};
+  const snapDoc = p => ({id:p.split('/').pop(), exists:cache.has(p), data:() => cache.get(p), metadata:meta});
+  const snapCol = c => { const docs = Array.from(cache.keys()).filter(k => colOf(k) === c).map(snapDoc); return {docs, size:docs.length, empty:!docs.length, docChanges:() => [], metadata:meta}; };
+  const emit = p => {
+    (docL.get(p) || new Set()).forEach(f => f(snapDoc(p)));
+    const c = colOf(p); if (loaded.has(c)) (colL.get(c) || new Set()).forEach(f => f(snapCol(c)));
+  };
+  sb.channel('docs-' + newId()).on('postgres_changes', {event:'*', schema:'public', table:'docs'}, pl => {
+    if (pl.eventType === 'DELETE') { const p = pl.old && pl.old.path; if (p) { cache.delete(p); emit(p); } }
+    else if (pl.new && pl.new.path) { cache.set(pl.new.path, pl.new.data); emit(pl.new.path); }
+  }).subscribe();
+  const docRef = p => {
+    const ref = {
+      id:p.split('/').pop(), path:p,
+      async get(){ const {data, error} = await sb.from('docs').select('data').eq('path', p).maybeSingle(); if (error) throw sbErr(error); if (data) cache.set(p, data.data); else cache.delete(p); return snapDoc(p); },
+      async set(d){ const {error} = await sb.from('docs').upsert({path:p, collection:colOf(p), data:d, updated_by:uid, updated_at:new Date().toISOString()}); if (error) throw sbErr(error); cache.set(p, d); emit(p); },
+      async update(d){ const cur = cache.get(p); if (!cur) throw {code:'invalid_argument', message:'absent'}; return ref.set(Object.assign({}, cur, d)); },
+      async delete(){ const {error} = await sb.from('docs').delete().eq('path', p); if (error) throw sbErr(error); cache.delete(p); emit(p); },
+      onSnapshot(next, onErr){ if (!docL.has(p)) docL.set(p, new Set()); docL.get(p).add(next); ref.get().then(next, e => onErr && onErr(e)); return () => docL.get(p).delete(next); },
+      collection(c){ return colRef(p + '/' + c); }
+    };
+    return ref;
+  };
+  const colRef = c => ({
+    path:c,
+    doc(id){ return docRef(c + '/' + (id || newId())); },
+    async add(d){ const r = docRef(c + '/' + newId()); await r.set(d); return r; },
+    onSnapshot(next, onErr){
+      if (!colL.has(c)) colL.set(c, new Set()); colL.get(c).add(next);
+      sb.from('docs').select('path,data').eq('collection', c).then(({data, error}) => {
+        if (error) { if (onErr) onErr(sbErr(error)); return; }
+        (data || []).forEach(r => cache.set(r.path, r.data)); loaded.add(c); next(snapCol(c));
+      });
+      return () => colL.get(c).delete(next);
+    }
+  });
+  return {doc:docRef, collection:colRef};
+}
+/* Photos : stockées dans le « bucket » photos de Supabase. */
+function makeAssets(sb, uid){
+  return {
+    async upload(blob, opt){
+      const type = (opt && opt.type) || blob.type || 'image/jpeg';
+      const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+      const path = uid + '/' + newId() + '.' + ext;
+      const {error} = await sb.storage.from('photos').upload(path, blob, {contentType:type, upsert:false});
+      if (error) throw {code:/exceed|size|large/i.test(error.message || '') ? 'too_large' : 'upstream_error', message:error.message};
+      return {id:path, url:photoUrl(path)};
+    },
+    async delete(id){ await sb.storage.from('photos').remove([id]); return {deleted:true}; }
+  };
+}
+/* Téléchargements : fichier enregistré directement par le navigateur. */
+const DOWNLOADS = {
+  async save({filename, data}){
+    const type = /\.csv$/.test(filename) ? 'text/csv;charset=utf-8' : 'text/markdown;charset=utf-8';
+    const blob = data instanceof Blob ? data : new Blob([data], {type});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.append(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    return {status:'saved'};
+  }
+};
+function showLogin(msg){
+  const L = $('#login'); L.hidden = false; $('#app').inert = true;
+  $('#lg-err').textContent = msg || '';
+  const n = store.get('gite-name'); if (n && !$('#lg-name').value) $('#lg-name').value = n;
+  setTimeout(() => { const f = $('#lg-name').value ? $('#lg-code') : $('#lg-name'); f.focus(); }, 60);
+  anim($('.login-card'), [{opacity:0, transform:'translateY(14px) scale(.98)'}, {opacity:1, transform:'none'}], {duration:520, easing:EASE_OUT});
+}
+function hideLogin(){ $('#login').hidden = true; $('#app').inert = false; }
+async function doLogin(){
+  const name = $('#lg-name').value.trim(), code = $('#lg-code').value;
+  const err = $('#lg-err'), btn = $('#lg-btn');
+  if (!name || !code) { err.textContent = 'Indique ton prénom et ton code.'; return; }
+  btn.disabled = true; btn.textContent = 'Connexion…'; err.textContent = '';
+  let res;
+  try { res = await SB.auth.signInWithPassword({email:slug(name) + '@' + MAIL_DOMAIN, password:code}); }
+  catch (e) { res = {error:{message:'network'}}; }
+  btn.disabled = false; btn.textContent = 'Entrer';
+  if (res.error || !res.data || !res.data.session) {
+    err.textContent = /fetch|network/i.test((res.error && res.error.message) || '') ? 'Connexion impossible : vérifie ta connexion internet.' : 'Prénom ou code incorrect. Vérifie l’orthographe ou demande ton code à l’organisateur.';
+    anim($('.login-card'), [{transform:'translateX(0)'}, {transform:'translateX(-8px)'}, {transform:'translateX(8px)'}, {transform:'translateX(-4px)'}, {transform:'none'}], {duration:360, easing:'ease-out'});
+    return;
+  }
+  store.set('gite-name', cap1(name));
+  start(res.data.session);
+}
+
+/* ---------- Démarrage ---------- */
+async function boot(){
+  applyMotion(); readHash(); bindStatic();
+  const C = window.GITE_CONFIG || {};
+  if (!window.supabase || !C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.booted = true; renderAll(); return; }
+  SB = window.supabase.createClient(C.url, C.key);
+  renderAll();
+  let session = null;
+  try { const {data} = await SB.auth.getSession(); session = data && data.session; } catch (e) {}
+  if (session) start(session); else showLogin();
+}
+async function start(session){
+  hideLogin();
+  const uid = session.user.id;
+  S.myId = uid; S.db = makeDb(SB, uid); S.assets = makeAssets(SB, uid); S.downloads = DOWNLOADS; S.sample = null;
+  const meta = session.user.user_metadata || {};
+  S.meName = meta.prenom || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
+  try { const {data} = await SB.from('admins').select('user_id').eq('user_id', uid).maybeSingle(); S.isOwner = !!data; } catch (e) { S.isOwner = false; }
+  S.booted = true;
+  subscribe(); renderAll();
+}
+function dbErr(e){ if (e && e.code === 'revoked') { S.readOnly = true; schedule(); } }
+function subscribe(){
+  const db = S.db;
+  db.doc('config/main').onSnapshot(s => { S.config = s.exists ? s.data() : null; schedule(); }, dbErr);
+  db.doc('trip/main').onSnapshot(s => { S.trip = s.exists ? s.data() : {}; schedule(); }, dbErr);
+  db.collection('members').onSnapshot(q => { const m = {}; q.docs.forEach(d => { m[d.id] = d.data(); }); S.members = m; if (!q.metadata.fromCache) S.loaded.members = true; schedule(); }, dbErr);
+  db.collection('votes').onSnapshot(q => { const v = {}; q.docs.forEach(d => { v[d.id] = d.data(); }); if (S.myVoteDirty && S.votes[S.myId]) v[S.myId] = S.votes[S.myId]; S.votes = v; S.loaded.votes = true; schedule(); }, dbErr);
+  db.collection('listings').onSnapshot(q => { const l = {}; q.docs.forEach(d => { l[d.id] = Object.assign({}, d.data(), {id:d.id}); }); S.listings = l; S.loaded.listings = true; schedule(); }, dbErr);
+  db.collection('comments').onSnapshot(q => { const c = {}; q.docs.forEach(d => { c[d.id] = Object.assign({}, d.data(), {id:d.id}); }); S.comments = c; schedule(); }, dbErr);
+}
+let raf = 0;
+function schedule(){ if (raf) return; raf = requestAnimationFrame(() => { raf = 0; renderAll(); }); }
+function renderAll(){
+  S.st = computeStats();
+  if (S.seenPrev === undefined && S.loaded.members && S.myId && S.members[S.myId]) {
+    S.seenPrev = S.members[S.myId].seenAt || 0;
+    if (canEdit()) setTimeout(() => { const m = S.members[S.myId]; if (m) writeDoc('members/' + S.myId, Object.assign({}, m, {seenAt:Date.now()})); }, 5000);
+  }
+  renderHeader(); renderBanner(); renderTrip(); renderNews(); renderTabs(); renderView();
+  if (S.openId) updateDrawer();
+  if (S.booted && S.loaded.members && S.myId && !S.readOnly && S.db && !S.members[S.myId] && !S.onboardShown && $('#modal').hidden) { S.onboardShown = true; openSettings(true); }
+  maybeReveal();
+}
+
+/* ---------- En-tête, bandeau, onglets ---------- */
+function renderHeader(){
+  $('#title').textContent = cfg().title || DEFAULT_CONFIG.title;
+  const ids = memberIds();
+  $('#avatars').innerHTML = ids.slice(0, 8).map(id => avatar(id)).join('') + (ids.length > 8 ? `<span class="av av-more">+${ids.length - 8}</span>` : '');
+  $('#grp').textContent = ids.length ? plural(ids.length, 'inscrit') : '';
+  const me = $('#me-btn');
+  me.hidden = !canEdit();
+  me.textContent = S.members[S.myId] ? S.members[S.myId].name : 'Mon profil';
+  $('#add-btn').hidden = !canEdit();
+}
+function renderBanner(){
+  let msg = '';
+  if (S.cfgMissing) msg = 'Le site n’est pas encore relié à sa base de données : renseigne l’adresse et la clé Supabase dans le fichier config.js.';
+  else if (S.booted && !S.db) msg = 'Connecte-toi à Claude pour voir les logements du groupe et voter.';
+  else if (S.booted && !S.myId) msg = 'Ton compte n’est pas reconnu sur cette page : tu peux regarder, mais pas voter.';
+  else if (S.readOnly) msg = 'Tu peux consulter le carnet mais pas le modifier. Préviens l’organisateur.';
+  else if (cfg().closed) msg = 'Les votes sont clos depuis le ' + fmtLong(cfg().closedAt) + '. Le podium est définitif.';
+  const b = $('#banner'); b.hidden = !msg; b.textContent = msg;
+}
+function renderTrip(force){
+  const band = $('#trip');
+  if (!force && band.querySelector('input')) return;
+  const t = S.trip || {}; const ids = memberIds();
+  const pen = canEdit();
+  const html = TRIP_FIELDS.map(([k, l, ph]) => {
+    const v = t[k];
+    const inner = pen
+      ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
+      : `<span class="tf-v">${esc(v || ph)}</span>`;
+    return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
+  if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
+}
+function editTrip(k){
+  const btn = $(`[data-trip="${k}"]`); if (!btn) return;
+  const cur = (S.trip || {})[k] || '';
+  const inp = document.createElement('input');
+  inp.id = 'trip-in-' + k; inp.value = cur; inp.maxLength = 80; inp.setAttribute('aria-labelledby', 'tl-' + k);
+  inp.placeholder = (TRIP_FIELDS.find(f => f[0] === k) || [])[2] || '';
+  btn.replaceWith(inp); inp.focus(); inp.select();
+  let done = false;
+  const fin = save => {
+    if (done) return; done = true;
+    const v = inp.value.trim();
+    if (save && v !== cur) {
+      S.trip = Object.assign({}, S.trip, {[k]:v, updatedAt:Date.now()});
+      writeDoc('trip/main', S.trip).then(() => toast('Voyage mis à jour'));
+    }
+    renderTrip(true);
+    const nb = $(`[data-trip="${k}"]`); if (nb) nb.focus();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fin(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(false); } });
+  inp.addEventListener('blur', () => fin(true));
+}
+let indPlaced = false;
+function renderTabs(){
+  $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === S.view)));
+  placeInd(indPlaced); indPlaced = true;
+}
+function placeInd(animate){
+  const nav = $('#tabs'), ind = $('#tab-ind'), a = $('.tab[aria-selected="true"]', nav); if (!a) return;
+  const nr = nav.getBoundingClientRect(), r = a.getBoundingClientRect();
+  if (!nr.width) return;
+  ind.style.transition = animate && M() ? 'clip-path 360ms ' + EASE_OUT : 'none';
+  ind.style.clipPath = `inset(${r.top - nr.top}px ${nr.right - r.right}px ${nr.bottom - r.bottom}px ${r.left - nr.left}px round 999px)`;
+}
+function setView(v){
+  if (!VIEWS.includes(v) || v === S.view) return;
+  closePop();
+  S.navDir = VIEWS.indexOf(v) > VIEWS.indexOf(S.view) ? 1 : -1;
+  S.view = v;
+  try { history.replaceState(null, '', '#' + v); } catch (e) {}
+  renderTabs(); renderView();
+}
+function readHash(){ const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
+
+/* ---------- Vues ---------- */
+let lastView = null;
+function renderView(){
+  const panel = $('#panel'); const changed = lastView !== S.view;
+  if (changed) {
+    panel.innerHTML = shellHTML(S.view); lastView = S.view;
+    panel.setAttribute('aria-labelledby', 'tab-' + S.view);
+    const dx = (S.navDir || 0) * 32;
+    anim(panel, [{opacity:0, transform:`translate(${dx}px, ${dx ? 0 : 10}px)`}, {opacity:1, transform:'none'}], {duration:360, easing:EASE_OUT});
+    S.navDir = 0;
+  }
+  ({galerie:fillGallery, comparateur:fillCompare, podium:fillPodium, carte:fillMap, dates:fillDates})[S.view](changed);
+}
+function filtersHTML(withSort){
+  return `<div class="filters"><h2 class="count" id="g-count"></h2><div class="f-set">
+    <div class="fld"><label for="f-dept">Département</label><select id="f-dept"></select></div>
+    <div class="fld"><label for="f-status">Statut</label><select id="f-status"></select></div>
+    ${withSort ? '<div class="fld"><label for="f-sort">Trier par</label><select id="f-sort"></select></div>' : ''}
+  </div></div>`;
+}
+function shellHTML(v){
+  if (v === 'galerie') return `${filtersHTML(true)}<div class="g-layout" style="margin-top:20px">
+    <div class="g-main"><div class="grid" id="grid"></div></div>
+    <aside class="g-side" aria-label="Aperçu">
+      <section class="side-card"><h3 class="side-t">Où sont-ils ?</h3><div id="mini-map"></div><p class="small muted">Clique sur un département pour l’explorer sur la carte.</p></section>
+      <section class="side-olive" id="side-podium"></section>
+    </aside></div>`;
+  if (v === 'comparateur') return `${filtersHTML(false)}<div class="tbl-wrap" style="margin-top:20px" id="cmp-wrap"></div>
+    <p class="note" style="margin-top:12px">Les notes d’un logement apparaissent dès que tu l’as noté toi-même. Clique sur un titre de colonne pour trier.</p>`;
+  if (v === 'podium') return `<div id="podium" class="sec-gap" style="gap:28px"></div>`;
+  if (v === 'dates') return `<div id="dates" class="sec-gap" style="gap:22px"></div>`;
+  return `<div class="map-layout"><div class="map-wrap"><div class="map-ctrl"><button type="button" class="btn btn-sm" id="map-reset" data-act="map-reset" hidden>Vue d’ensemble</button></div><div id="big-map"></div>
+    <div class="legend"><span><i style="background:var(--land-on)"></i>Département avec des logements</span><span><i style="background:var(--accent);border-color:var(--accent);border-radius:50%"></i>Logement</span></div></div>
+    <aside class="map-side" id="map-side" aria-live="polite"></aside></div>`;
+}
+const fpass = l => (!S.f.dept || l.dept === S.f.dept) && (!S.f.status || statusOf(l).s.id === S.f.status);
+function fillFilterSelects(){
+  const d = $('#f-dept'), s = $('#f-status'), so = $('#f-sort');
+  if (d && document.activeElement !== d) {
+    const present = Array.from(new Set(listingsArr().map(l => l.dept).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fr', {numeric:true}));
+    if (S.f.dept && !present.includes(S.f.dept)) present.push(S.f.dept);
+    d.innerHTML = '<option value="">Tous</option>' + present.map(c => `<option value="${esc(c)}">${esc(depLabel(c))}</option>`).join('');
+    d.value = S.f.dept;
+  }
+  if (s && document.activeElement !== s) {
+    s.innerHTML = '<option value="">Tous</option>' + statuses().map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+    s.value = S.f.status;
+  }
+  if (so && document.activeElement !== so) {
+    const opts = [['score','Meilleure note'],['recent','Plus récents'],['prix','Prix croissant']].concat(crits().map(c => ['crit:' + c.id, 'Note : ' + c.label]));
+    so.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+    so.value = S.f.sort; if (so.value !== S.f.sort) { S.f.sort = 'score'; so.value = 'score'; }
+  }
+}
+function countLabel(n, all){
+  if (!all) return 'Aucun logement';
+  return n === all ? plural(all, 'logement') : n + ' sur ' + plural(all, 'logement');
+}
+function galleryList(){
+  const arr = listingsArr().filter(fpass); const s = S.f.sort;
+  const key = l => s === 'score' ? st(l.id).overall : (s.startsWith('crit:') ? st(l.id).per[s.slice(5)] : null);
+  arr.sort((a, b) => {
+    if (s === 'recent') return (b.createdAt || 0) - (a.createdAt || 0);
+    if (s === 'prix') { const pa = num(a.price), pb = num(b.price); return (pa == null ? 1e12 : pa) - (pb == null ? 1e12 : pb); }
+    const va = canSee(a.id), vb = canSee(b.id);
+    if (va !== vb) return va ? -1 : 1;
+    if (!va) return (b.createdAt || 0) - (a.createdAt || 0);
+    const ka = key(a), kb = key(b);
+    return (kb == null ? -1 : kb) - (ka == null ? -1 : ka) || (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  return arr;
+}
+function cardHTML(l){
+  const s = st(l.id); const see = canSee(l.id);
+  let score;
+  if (see && s.overall != null) score = `<span class="score" data-v="${s.overall}" aria-label="Note moyenne ${fmtScore(s.overall)} sur 10">${fmtScore(s.overall)}</span>`;
+  else if (canVote() && !hasCompleted(S.myId, l.id)) score = '<span class="todo">À toi de noter</span>';
+  else score = '<span class="score score-none" aria-label="Pas encore noté">–</span>';
+  const facts = [fmtPrice(num(l.price)), l.beds ? plural(l.beds, 'couchage') : '', l.bedrooms ? plural(l.bedrooms, 'chambre') : ''].filter(Boolean).join(' · ');
+  const eq = (l.equipments || []).slice(0, 4).join(' · ');
+  return `<article class="card${S.highlight === l.id ? ' hl' : ''}" data-k="${esc(l.id)}">
+    ${photoHTML(l, badgesHTML(l, s, true))}
+    <div class="cb">
+      <div class="c-top"><div><h3 class="c-title">${esc(l.title || 'Sans titre')}</h3><p class="c-place">${esc(placeOf(l))}</p></div>${score}</div>
+      <p class="facts">${esc(facts)}</p>
+      ${eq ? `<p class="eq">${esc(eq)}</p>` : ''}
+      <div class="chips">${chipHTML(l)}</div>
+      <div class="foot"><span>Proposé par ${esc(nameOf(l.addedBy))}</span><span>${s.voted} / ${s.total} ont noté</span></div>
+    </div>
+    <button type="button" class="card-hit" data-open="${esc(l.id)}" aria-label="Ouvrir la fiche : ${esc(l.title || 'Sans titre')}"></button>
+  </article>`;
+}
+function emptyHTML(){
+  if (S.db && !S.loaded.listings) return '<div class="ghost" aria-hidden="true"></div><div class="ghost" aria-hidden="true"></div><p class="muted" style="grid-column:1/-1">Chargement du carnet…</p>';
+  if (listingsArr().length) return `<div class="empty"><h3>Aucun logement ne correspond</h3><p>Change de département ou de statut pour en voir d’autres.</p><button type="button" class="btn" data-act="reset-filters">Voir tous les logements</button></div>`;
+  return `<div class="empty">${IC.house}<h3>Le carnet est encore vide</h3>
+    <p>Trouve une annonce sur Airbnb, Abritel, Gîtes de France ou ailleurs, puis ajoute-la ici avec son lien. Colle le texte ou une capture d’écran de l’annonce : la fiche se remplit toute seule.</p>
+    ${canEdit() ? '<button type="button" class="btn btn-accent" data-act="add">Ajouter le premier logement</button>' : ''}</div>`;
+}
+function fillGallery(changed){
+  fillFilterSelects();
+  const list = galleryList();
+  $('#g-count').textContent = countLabel(list.length, listingsArr().length);
+  const grid = $('#grid');
+  const html = list.length ? list.map(cardHTML).join('') : emptyHTML();
+  if (grid._h !== html) {
+    const before = flipCapture(grid); grid.innerHTML = html; grid._h = html; flipPlay(grid, before);
+    $$('.card', grid).forEach((c, i) => {
+      const k = c.dataset.k; const s = st(k); const prev = S.prevMarks[k];
+      if (!before.has(k)) {
+        const sc = $('.score[data-v]', c);
+        if (sc && M()) { const v = num(sc.dataset.v); sc.textContent = fmtScore(0); setTimeout(() => countUp(sc, v, 900), Math.min(i, 10) * 55 + 200); }
+      } else if (prev) {
+        if (s.hearts.length > prev[0]) anim($('.pas-heart', c), POP, {duration:460, easing:EASE_OUT});
+        if (s.vetos.length > prev[1]) anim($('.pas-veto', c), POP, {duration:460, easing:EASE_OUT});
+      }
+      S.prevMarks[k] = [s.hearts.length, s.vetos.length];
+    });
+  }
+  const mini = $('#mini-map'); const mm = mapSVG(true);
+  if (mini._h !== mm) { mini.innerHTML = mm; mini._h = mm; if (changed) popPins(mini); }
+  fillSidePodium();
+}
+function podiumUnlocked(){
+  const list = listingsArr();
+  if (!wouldVote()) return true;
+  return list.length > 0 && list.every(l => hasCompleted(S.myId, l.id));
+}
+function fillSidePodium(){
+  const el = $('#side-podium'); if (!el) return;
+  const list = listingsArr();
+  if (!list.length) { el.innerHTML = '<h3 class="side-t">Podium provisoire</h3><p>Il apparaîtra quand les premiers logements seront notés.</p>'; return; }
+  if (!podiumUnlocked()) {
+    const done = list.filter(l => hasCompleted(S.myId, l.id)).length;
+    el.innerHTML = `<h3 class="side-t">Podium provisoire</h3><p>Note les ${list.length} logements pour découvrir le podium. Tu en as noté ${done}.</p><div class="prog" aria-hidden="true"><span style="transform:scaleX(${done / list.length})"></span></div>`;
+    return;
+  }
+  const top = ranking().filter(r => r.s.overall != null).slice(0, 3);
+  el.innerHTML = '<h3 class="side-t">' + (cfg().closed ? 'Podium final' : 'Podium provisoire') + '</h3>' +
+    (top.length ? top.map((r, i) => `<button type="button" class="pod-li" data-open="${esc(r.l.id)}"><span class="rk">${i + 1}</span><span class="tt">${esc(r.l.title)}</span><span class="sc">${fmtScore(r.s.overall)}</span></button>`).join('') : '<p>Pas encore assez de notes.</p>');
+}
+
+/* ---------- Carte ---------- */
+function mapSVG(mini){
+  const counts = {}; listingsArr().forEach(l => { if (l.dept) counts[l.dept] = (counts[l.dept] || 0) + 1; });
+  const paths = DEP_LIST.map(d => {
+    const n = counts[d.c] || 0;
+    return `<path d="${d.d}" class="dep${n ? ' has' : ''}${!mini && S.mapSel === d.c ? ' sel' : ''}" data-dep="${d.c}"><title>${esc(d.n)} (${d.c})${n ? ' · ' + plural(n, 'logement') : ''}</title></path>`;
+  }).join('');
+  const r = mini ? 16 : 8;
+  const pins = listingsArr().map(l => {
+    const p = pinPos(l); if (!p) return '';
+    return `<g class="pin${S.openId === l.id ? ' on' : ''}" data-open="${esc(l.id)}" transform="translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})" tabindex="${mini ? -1 : 0}" role="button" aria-label="Ouvrir la fiche : ${esc(l.title)}"><g class="pin-s"><circle r="${r * 1.4}" class="pin-halo"/><circle r="${r}" class="pin-dot"/></g><title>${esc(l.title)}</title></g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${FR.w} ${FR.h}" class="fr ${mini ? 'fr-mini' : 'fr-big'}" role="group" aria-label="Carte de France des logements proposés"><g class="zoom"${mini ? '' : ' id="zoomg"'}>${paths}<g class="pins">${pins}</g></g></svg>`;
+}
+function popPins(root){
+  if (!M() || !root) return;
+  $$('.pin', root).forEach((p, i) => {
+    const dl = 260 + Math.min(i, 14) * 70;
+    anim($('.pin-dot', p), [{opacity:0, transform:'translateY(-44px)'}, {opacity:1, transform:'none'}], {duration:560, delay:dl, easing:EASE_BACK, fill:'backwards'});
+    anim($('.pin-halo', p), [{opacity:.55, transform:'scale(.6)'}, {opacity:0, transform:'scale(2.5)'}], {duration:900, delay:dl + 440, easing:EASE_OUT});
+  });
+}
+function applyZoom(animated){
+  const g = $('#zoomg'); if (!g) return;
+  let z = 1, tx = 0, ty = 0;
+  if (S.mapSel) {
+    const p = g.querySelector(`path[data-dep="${CSS.escape(S.mapSel)}"]`);
+    if (p) {
+      const b = p.getBBox();
+      z = Math.max(1, Math.min(7, Math.min(FR.w / b.width, FR.h / b.height) * 0.5));
+      tx = FR.w / 2 - (b.x + b.width / 2) * z; ty = FR.h / 2 - (b.y + b.height / 2) * z;
+    }
+  }
+  g.style.transition = animated && M() ? `transform 700ms ${EASE_IO}, --inv 700ms ${EASE_IO}` : 'none';
+  g.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
+  g.style.setProperty('--inv', String(1 / z));
+  const rb = $('#map-reset'); if (rb) rb.hidden = !S.mapSel;
+}
+function fillMap(changed){
+  const box = $('#big-map'); const html = mapSVG(false);
+  if (box._h !== html) {
+    box.innerHTML = html; box._h = html;
+    if (changed && S.mapSel) {
+      const sel = S.mapSel; S.mapSel = null; applyZoom(false); S.mapSel = sel;
+      requestAnimationFrame(() => requestAnimationFrame(() => applyZoom(true)));
+    } else applyZoom(false);
+    if (changed) popPins(box);
+  }
+  fillMapSide();
+}
+function selectDep(c){
+  S.mapSel = c;
+  $$('#big-map .dep').forEach(p => p.classList.toggle('sel', p.dataset.dep === c));
+  applyZoom(true); fillMapSide();
+}
+function mlItem(l){
+  const s = st(l.id); const see = canSee(l.id);
+  return `<li data-k="${esc(l.id)}"><button type="button" class="ml-item" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span class="grow"><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc([l.commune, fmtPrice(num(l.price))].filter(Boolean).join(' · '))}</span></span>${see && s.overall != null ? `<span class="num big-num">${fmtScore(s.overall)}</span>` : ''}</button></li>`;
+}
+function fillMapSide(){
+  const el = $('#map-side'); if (!el) return;
+  const all = listingsArr();
+  if (S.mapSel) {
+    const d = DEP[S.mapSel]; const here = all.filter(l => l.dept === S.mapSel);
+    el.innerHTML = `<div><p class="eyebrow">Département ${esc(S.mapSel)}</p><h2 class="h2">${esc(d ? d.n : S.mapSel)}</h2></div>` +
+      (here.length ? `<ul class="ml">${here.map(mlItem).join('')}</ul>` : '<p class="muted">Aucun logement ici pour l’instant.</p>') +
+      `<button type="button" class="btn btn-ghost" data-act="map-reset">Revenir à toute la France</button>`;
+  } else {
+    const by = {}; all.forEach(l => { const k = l.dept || '?'; (by[k] = by[k] || []).push(l); });
+    const keys = Object.keys(by).sort((a, b) => by[b].length - by[a].length || a.localeCompare(b, 'fr', {numeric:true}));
+    el.innerHTML = `<div><p class="eyebrow">Toute la France</p><h2 class="h2">${all.length ? plural(all.length, 'logement') + ' dans ' + plural(keys.length, 'département') : 'Aucun logement'}</h2></div>` +
+      (keys.length ? `<ul class="ml">${keys.map(k => `<li><button type="button" class="ml-item" ${DEP[k] ? `data-pick-dep="${esc(k)}"` : 'disabled'}><span class="grow"><span class="tt">${esc(k === '?' ? 'Lieu à préciser' : depLabel(k))}</span><br><span class="sub">${esc(by[k].map(l => l.title).slice(0, 3).join(', '))}${by[k].length > 3 ? '…' : ''}</span></span><span class="num big-num">${by[k].length}</span></button></li>`).join('')}</ul>` : '<p class="muted">Les logements ajoutés apparaîtront ici et sur la carte.</p>');
+  }
+}
+
+/* ---------- Comparateur ---------- */
+function sortTh(key, label, cls){
+  const on = S.cmp.key === key;
+  return `<th scope="col"${cls ? ` class="${cls}"` : ''} aria-sort="${on ? (S.cmp.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sort-btn" data-sort="${esc(key)}">${esc(label)}${IC.chev}</button></th>`;
+}
+function cellHTML(v, see){
+  if (!see) return `<span class="lock" title="Note ce logement pour voir">${IC.lock}</span>`;
+  if (v == null) return '<span class="muted">–</span>';
+  return `<div class="cell"><span class="num">${fmtScore(v)}</span><span class="gauge"><span style="transform:scaleX(${(v / 10).toFixed(3)})"></span></span></div>`;
+}
+function fillCompare(changed){
+  fillFilterSelects();
+  const cs = crits(); const k = S.cmp.key, dir = S.cmp.dir;
+  const all = listingsArr(); const arr = all.filter(fpass);
+  $('#g-count').textContent = countLabel(arr.length, all.length);
+  const val = l => {
+    const s = st(l.id); const see = canSee(l.id);
+    if (k === 'title') return String(l.title || '').toLowerCase();
+    if (k === 'price') return num(l.price);
+    if (k === 'overall') return see ? s.overall : null;
+    if (k === 'hearts') return s.hearts.length;
+    if (k === 'voted') return s.voted;
+    if (k.startsWith('c:')) return see ? s.per[k.slice(2)] : null;
+    return null;
+  };
+  arr.sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; if (typeof va === 'string') return dir * va.localeCompare(vb, 'fr'); return dir * (va - vb); });
+  const wrap = $('#cmp-wrap');
+  if (!all.length) { wrap.innerHTML = `<div style="padding:24px">${emptyHTML()}</div>`; wrap._h = null; return; }
+  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
+    arr.map(l => {
+      const s = st(l.id); const see = canSee(l.id);
+      return `<tr data-k="${esc(l.id)}"><td class="c-name"><button type="button" class="row-btn" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span></button></td>
+        <td class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</td>
+        ${cs.map(c => `<td>${cellHTML(s.per[c.id], see)}</td>`).join('')}
+        <td>${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span>`) : `<span class="lock">${IC.lock}</span>`}</td>
+        <td>${badgesHTML(l, s, true, true) || '<span class="muted">–</span>'}</td>
+        <td class="num">${s.voted} / ${s.total}</td>
+        <td>${chipHTML(l)}</td></tr>`;
+    }).join('') + '</tbody></table>';
+  if (!arr.length) html += '<p style="padding:16px" class="muted">Aucun logement ne correspond à ces filtres.</p>';
+  if (wrap._h !== html) {
+    const before = flipCapture(wrap); wrap.innerHTML = html; wrap._h = html; flipPlay(wrap, before, !changed);
+    if (changed && M()) {
+      $$('tbody tr', wrap).forEach((tr, i) => anim(tr, [{opacity:0, transform:'translateY(10px)'}, {opacity:1, transform:'none'}], {duration:420, delay:80 + i * 50, easing:EASE_OUT, fill:'backwards'}));
+      $$('.gauge>span', wrap).forEach((g, i) => { const fin = g.style.transform; anim(g, [{transform:'scaleX(0)'}, {transform:fin}], {duration:800, delay:220 + Math.floor(i / cs.length) * 50, easing:EASE_OUT, fill:'backwards'}); });
+    }
+  }
+}
+
+/* ---------- Podium ---------- */
+function stepHTML(r, rank, forReveal){
+  const l = r.l, s = r.s;
+  return `<div class="step r${rank}"${forReveal ? '' : ` data-k="${esc(l.id)}"`}>
+    <div class="step-card">${photoHTML(l)}<div class="step-b">
+      <h3 class="step-t">${esc(l.title)}</h3><p class="step-p">${esc(placeOf(l))}</p>
+      <div class="step-m"><span class="step-score" data-score="${s.overall}">${fmtScore(forReveal ? 0 : s.overall)}</span><span class="small muted">/ 10</span>${badgesHTML(l, s, !forReveal, true)}</div>
+    </div></div>
+    <div class="plinth" aria-hidden="true">${rank}</div>
+    ${forReveal ? '' : `<button type="button" class="card-hit" data-open="${esc(l.id)}" aria-label="${rank === 1 ? '1er' : rank + 'e'} : ${esc(l.title)}"></button>`}
+  </div>`;
+}
+function whoHTML(){
+  const ids = memberIds().sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
+  if (!ids.length) return '';
+  const all = listingsArr(); const n = all.length;
+  const lk = id => (id && S.listings[id]) ? `<button type="button" class="link-btn" style="color:var(--ink)" data-open="${esc(id)}">${esc(S.listings[id].title)}</button>` : '<span class="muted">–</span>';
+  return `<section class="sec-gap"><h2 class="h2">Qui a voté quoi</h2><div class="tbl-wrap"><table class="who"><thead><tr><th scope="col">Personne</th><th scope="col">Logements notés</th><th scope="col">Coup de cœur</th><th scope="col">Veto</th></tr></thead><tbody>` +
+    ids.map(u => { const v = votesOf(u); const done = all.filter(l => hasCompleted(u, l.id)).length;
+      return `<tr><th scope="row"><span class="nm">${avatar(u, 'av-sm')}${esc(nameOf(u))}</span></th><td class="num">${done} / ${n}</td><td>${lk(v.heart)}</td><td>${lk(v.veto)}</td></tr>`; }).join('') +
+    '</tbody></table></div></section>';
+}
+function fillPodium(changed){
+  const el = $('#podium'); const c = cfg(); const all = listingsArr();
+  const unlocked = podiumUnlocked();
+  let acts = '';
+  if (S.isOwner && canEdit()) {
+    if (!c.closed) acts += S.confirmClose
+      ? `<div class="confirm"><span>Les votes seront figés pour tout le monde.</span><button type="button" class="btn btn-sm btn-accent" data-act="close-confirm">Clore et révéler</button><button type="button" class="btn btn-sm" data-act="close-cancel">Annuler</button></div>`
+      : `<button type="button" class="btn btn-olive" data-act="close-votes"${all.length ? '' : ' disabled'}>Clore les votes</button>`;
+    else acts += '<button type="button" class="btn" data-act="reopen">Rouvrir les votes</button>';
+  }
+  if (c.closed && all.length) acts += '<button type="button" class="btn" data-act="replay">Revoir la révélation</button>';
+  if (unlocked && all.length && S.downloads) acts += '<button type="button" class="btn" data-act="dl-md">Récap (.md)</button><button type="button" class="btn" data-act="dl-csv">Notes (.csv)</button>';
+  const head = `<div class="pod-head"><div><p class="eyebrow">${c.closed ? 'Résultat final' : 'Classement provisoire'}</p><h2 class="h2" style="font-size:34px">${c.closed ? 'Votes clos le ' + esc(fmtLong(c.closedAt)) : 'Le podium'}</h2></div><div class="pod-actions">${acts}</div></div>`;
+  if (!all.length) { el.innerHTML = head + '<div class="lock-card"><h3 class="h2">Pas encore de podium</h3><p class="muted">Il se remplira quand des logements auront été ajoutés et notés.</p></div>' + whoHTML(); el._h = null; return; }
+  if (!unlocked) {
+    const todo = all.filter(l => !hasCompleted(S.myId, l.id)); const done = all.length - todo.length;
+    el.innerHTML = head + `<div class="lock-card">${IC.lock}<h3 class="h2">Note les ${all.length} logements pour découvrir le podium</h3>
+      <p class="muted">Tu en as noté ${done}. Le classement reste caché tant que tu n’as pas tout noté, pour que chacun vote sans être influencé.</p>
+      <div class="prog prog-ink" aria-hidden="true"><span style="transform:scaleX(${done / all.length})"></span></div>
+      <ul class="ml">${todo.map(mlItem).join('')}</ul></div>` + whoHTML();
+    el._h = null;
+    return;
+  }
+  const ranked = ranking();
+  const kept = ranked.filter(r => r.s.overall != null);
+  const unrated = ranked.filter(r => r.s.overall == null);
+  const html = head +
+    (kept.length ? `<div class="stage">${kept.slice(0, 3).map((r, i) => stepHTML(r, i + 1)).join('')}</div>` : '<div class="lock-card"><p class="muted">Pas encore assez de notes pour un podium.</p></div>') +
+    (kept.length > 3 || unrated.length ? `<section class="sec-gap"><h2 class="h2">La suite du classement</h2><ul class="rest">${kept.slice(3).map((r, i) => `<li data-k="${esc(r.l.id)}"><button type="button" class="ml-item" data-open="${esc(r.l.id)}"><span class="rk">${i + 4}</span><span class="thumb">${photoHTML(r.l)}</span><span class="grow"><span class="tt">${esc(r.l.title)}</span><br><span class="sub">${esc(placeOf(r.l))}</span></span>${badgesHTML(r.l, r.s, false, true)}<span class="num big-num">${fmtScore(r.s.overall)}</span></button></li>`).join('')}${unrated.map(r => `<li data-k="${esc(r.l.id)}"><button type="button" class="ml-item" data-open="${esc(r.l.id)}"><span class="rk">·</span><span class="thumb">${photoHTML(r.l)}</span><span class="grow"><span class="tt">${esc(r.l.title)}</span><br><span class="sub">Pas encore noté</span></span></button></li>`).join('')}</ul></section>` : '') +
+    whoHTML();
+  if (el._h !== html) { const before = flipCapture(el); el.innerHTML = html; el._h = html; flipPlay(el, before, !changed); if (changed) podiumEntrance(el); }
+}
+
+/* ---------- Fiche ---------- */
+function openListing(id){
+  if (!S.listings[id]) return;
+  const wasOpen = !!S.openId;
+  S.openId = id; S.dwConfirm = false; S.highlight = null;
+  if (!wasOpen) S.drawerTrigger = document.activeElement;
+  const w = $('#drawer-wrap'), dw = $('#drawer');
+  dw.innerHTML = drawerHTML(S.listings[id]);
+  if (canSee(id)) S.unlockedSeen.add(id);
+  if (!wasOpen) { w.hidden = false; void w.offsetWidth; w.classList.add('open'); $('#app').inert = true; }
+  else $('.dw-scroll', dw).scrollTop = 0;
+  $('#dw-close').focus();
+  markPins(); closePop();
+  if (M()) {
+    anim($('.dw-photo .ph > *', dw), [{transform:'scale(1.12)', opacity:.3}, {transform:'none', opacity:1}], {duration:900, easing:EASE_OUT});
+    $$('.dw-pad > *', dw).forEach((el, i) => anim(el, [{opacity:0, transform:'translateY(18px)'}, {opacity:1, transform:'none'}], {duration:480, delay:150 + i * 70, easing:EASE_OUT, fill:'backwards'}));
+  }
+}
+function closeDrawer(){
+  if (!S.openId) return;
+  const w = $('#drawer-wrap'); w.classList.remove('open');
+  const lastId = S.openId;
+  S.openId = null; $('#app').inert = false;
+  const fin = () => { if (!S.openId) { w.hidden = true; $('#drawer').innerHTML = ''; } };
+  if (M()) setTimeout(fin, 420); else fin();
+  let t = S.drawerTrigger;
+  if (!t || !document.contains(t)) t = $(`#app [data-open="${CSS.escape(lastId)}"]`);
+  if (t) t.focus();
+  markPins();
+}
+function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', p.dataset.open === S.openId)); }
+function drawerHTML(l){
+  return `<button type="button" class="icon-btn dw-close" id="dw-close" aria-label="Fermer la fiche">${IC.x}</button>
+  <div class="dw-scroll">
+    <div class="dw-photo">${photoHTML(l)}</div>
+    <div class="dw-pad">
+      <div id="dw-head">${dwHead(l)}</div>
+      <div id="dw-facts">${dwFacts(l)}</div>
+      <section id="dw-vote" aria-label="Mon vote">${dwVote(l)}</section>
+      <section id="dw-others" aria-label="Les notes du groupe">${dwOthers(l)}</section>
+      <section id="dw-comments" aria-labelledby="dw-ct"><h3 class="sec-t" id="dw-ct">Commentaires</h3><div id="dw-clist">${dwComments(l)}</div>
+        ${canEdit() ? `<form class="cform" id="dw-cform"><label for="dw-ctext" class="sr-only">Ton commentaire</label><textarea id="dw-ctext" class="input" rows="2" maxlength="1000" placeholder="Une remarque, une question pour le propriétaire…"></textarea><div class="row"><span class="hint">Ctrl + Entrée pour envoyer</span><button type="submit" class="btn btn-sm btn-accent">Envoyer</button></div></form>` : ''}
+      </section>
+    </div>
+  </div>`;
+}
+function dwHead(l){
+  const url = safeUrl(l.url);
+  const ss = statuses(); const cur = statusOf(l).s.id;
+  const canDel = S.isOwner && canEdit();
+  return `<div class="sec-gap" style="gap:10px">
+    <div class="chips">${canEdit() ? `<label for="dw-status" class="sr-only">Statut</label><select id="dw-status" style="min-height:36px;font-size:14px">${ss.map(s => `<option value="${esc(s.id)}"${s.id === cur ? ' selected' : ''}>${esc(s.label)}</option>`).join('')}</select>` : chipHTML(l)}${l.source ? `<span class="small muted">${esc(l.source)}</span>` : ''}</div>
+    <h2 class="dw-title" id="dw-title">${esc(l.title || 'Sans titre')}</h2>
+    <p class="muted">${esc(placeOf(l))}</p>
+    <div class="dw-acts">
+      ${url ? `<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Voir l’annonce ${IC.ext}</a>` : ''}
+      ${canEdit() ? `<button type="button" class="btn btn-sm" data-act="edit" data-id="${esc(l.id)}">Modifier</button>` : ''}
+      ${canDel ? (S.dwConfirm ? `<span class="confirm"><span>Supprimer définitivement ?</span><button type="button" class="btn btn-sm btn-accent" data-act="del-confirm">Supprimer</button><button type="button" class="btn btn-sm" data-act="del-cancel">Annuler</button></span>` : `<button type="button" class="btn btn-sm btn-ghost" data-act="del">Supprimer</button>`) : ''}
+    </div></div>`;
+}
+function dwFacts(l){
+  const s = st(l.id);
+  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || '–'], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
+  const eq = (l.equipments || []);
+  return `<div class="sec-gap" style="gap:16px">
+    <dl class="dl">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
+    ${eq.length ? `<div class="eqs">${eq.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
+    ${l.note ? `<p class="quote">${esc(l.note)}</p>` : ''}
+    <p class="small muted">Proposé par ${esc(nameOf(l.addedBy))}${l.createdAt ? ' le ' + esc(fmtDate(l.createdAt)) : ''}</p>
+    ${marksHTML(s)}
+  </div>`;
+}
+function dwVote(l){
+  const head = '<div class="sec-h"><h3 class="sec-t">Mon vote</h3><span class="save-ind" id="dw-save" aria-live="polite"></span></div>';
+  if (!S.myId || !S.db) return head + '<p class="muted" style="margin-top:8px">Connecte-toi à Claude pour voter.</p>';
+  if (S.readOnly) return head + '<p class="muted" style="margin-top:8px">Ton accès permet de consulter, pas de voter.</p>';
+  if (!S.members[S.myId]) return head + '<p class="muted" style="margin-top:8px">Choisis ton prénom pour voter. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>';
+  const closed = cfg().closed; const v = votesOf(S.myId); const sc = (v.scores || {})[l.id] || {};
+  const rows = crits().map(c => {
+    return `<div class="vrow" data-crow="${esc(c.id)}">${voteRowInner(c, sc[c.id], closed)}</div>`;
+  }).join('');
+  const heartOn = v.heart === l.id, vetoOn = v.veto === l.id;
+  const hints = [];
+  if (v.heart && v.heart !== l.id && S.listings[v.heart]) hints.push('Ton coup de cœur actuel : ' + S.listings[v.heart].title + '.');
+  if (v.veto && v.veto !== l.id && S.listings[v.veto]) hints.push('Ton veto actuel : ' + S.listings[v.veto].title + '.');
+  hints.push('Un coup de cœur et un veto par personne : en choisir un autre le déplace ici.');
+  return head + (closed ? '<p class="muted" style="margin-top:6px">Les votes sont clos.</p>' : '') +
+    `<div class="vrows">${rows}</div>
+    <div class="vtoggles">
+      <button type="button" class="tgl tgl-heart${heartOn ? ' on' : ''}" data-heart="${esc(l.id)}" aria-pressed="${heartOn}"${closed ? ' disabled' : ''}>${IC.heart}<span>${heartOn ? 'Mon coup de cœur' : 'En faire mon coup de cœur'}</span></button>
+      <button type="button" class="tgl tgl-veto${vetoOn ? ' on' : ''}" data-veto="${esc(l.id)}" aria-pressed="${vetoOn}"${closed ? ' disabled' : ''}>${IC.ban}<span>${vetoOn ? 'Mon veto' : 'Mettre mon veto'}</span></button>
+    </div>
+    ${heartOn ? `<div class="frow why-in"><label for="dw-hwhy">Pourquoi ce coup de cœur ? <span class="opt">facultatif</span></label><input id="dw-hwhy" class="input" maxlength="160" value="${esc(v.heartWhy || '')}" placeholder="La piscine, la vue, le calme…"${closed ? ' disabled' : ''}></div>` : ''}
+    ${vetoOn ? `<div class="frow why-in"><label for="dw-vwhy">Pourquoi ce veto ? <span class="opt">facultatif</span></label><input id="dw-vwhy" class="input" maxlength="160" value="${esc(v.vetoWhy || '')}" placeholder="Trop loin, pas assez de chambres…"${closed ? ' disabled' : ''}></div>` : ''}
+    <p class="small muted" style="margin-top:10px">${esc(hints.join(' '))}</p>`;
+}
+function voteRowInner(c, cur, closed){
+  let dots = '';
+  for (let i = 1; i <= 10; i++) dots += `<button type="button" class="dot${cur >= i ? ' f' : ''}" style="--i:${i - 1}" data-score="${i}" data-c="${esc(c.id)}" aria-pressed="${cur === i}" aria-label="${i} sur 10"${closed ? ' disabled' : ''}></button>`;
+  return `<span class="vl" id="vl-${esc(c.id)}">${esc(c.label)}</span><div class="dots" role="group" aria-labelledby="vl-${esc(c.id)}">${dots}</div><span class="vv">${cur == null ? '–' : cur}</span>`;
+}
+function paintVoteRow(cid){
+  const row = $(`[data-crow="${CSS.escape(cid)}"]`); if (!row) return;
+  const cur = ((votesOf(S.myId).scores || {})[S.openId] || {})[cid];
+  $$('.dot', row).forEach(d => { const n = +d.dataset.score; d.classList.toggle('f', cur >= n); d.setAttribute('aria-pressed', String(cur === n)); });
+  const vv = $('.vv', row); vv.textContent = cur == null ? '–' : cur;
+  anim(vv, [{transform:'scale(1.25)'}, {transform:'none'}], {duration:240, easing:EASE_OUT});
+}
+function dwOthers(l){
+  const s = st(l.id);
+  const h = '<h3 class="sec-t">Les notes du groupe</h3>';
+  if (!canSee(l.id)) {
+    const sc = (votesOf(S.myId).scores || {})[l.id] || {};
+    const left = applicable(S.myId).filter(c => typeof sc[c.id] !== 'number').length;
+    const msg = !S.members[S.myId] ? 'Inscris-toi et note ce logement pour voir les notes des autres.' : (left > 1 ? `Note encore ${left} critères pour voir les notes des autres.` : 'Note le dernier critère pour voir les notes des autres.');
+    return h + `<div class="locked">${IC.lock}<p>${msg} Ça évite de s’influencer.</p><p class="small muted">${s.voted} / ${s.total} ont déjà noté ce logement.</p></div>`;
+  }
+  const cs = crits();
+  const voters = memberIds().filter(u => { const x = (votesOf(u).scores || {})[l.id]; return x && Object.keys(x).length; }).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
+  if (!voters.length) return h + '<p class="muted" style="margin-top:8px">Personne n’a encore noté ce logement.</p>';
+  return h + `<div class="ov"><span class="ov-n" id="dw-ov">${fmtScore(s.overall)}</span><span class="muted">/ 10 de moyenne · ${s.voted} / ${s.total} ont tout noté</span></div>
+    <div class="tbl-wrap"><table class="mini-tbl"><thead><tr><th scope="col">Personne</th>${cs.map(c => `<th scope="col" title="${esc(c.label)}">${esc(c.label.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>` +
+    voters.map(u => { const x = (votesOf(u).scores || {})[l.id] || {}; const v = votesOf(u);
+      return `<tr><td>${esc(nameOf(u))}${v.heart === l.id ? ' <span class="hearts" title="Coup de cœur">' + IC.heart + '</span>' : ''}${v.veto === l.id ? ' <span class="vetob">veto</span>' : ''}</td>${cs.map(c => `<td>${typeof x[c.id] === 'number' ? x[c.id] : '<span class="muted">–</span>'}</td>`).join('')}</tr>`; }).join('') +
+    `</tbody><tfoot><tr><td>Moyenne</td>${cs.map(c => `<td>${fmtScore(s.per[c.id])}</td>`).join('')}</tr></tfoot></table></div>`;
+}
+function dwComments(l){
+  const list = Object.values(S.comments).filter(c => c.lid === l.id).sort((a, b) => (a.at || 0) - (b.at || 0));
+  if (!list.length) return '<p class="small muted" style="margin-top:8px">Pas encore de commentaire.</p>';
+  return '<ul class="clist">' + list.map(c => `<li data-k="${esc(c.id)}">${avatar(c.by, 'av-sm')}<div class="cbody"><div class="cmeta"><strong>${esc(nameOf(c.by))}</strong><span>${esc(relTime(c.at))}</span>${canEdit() && (c.by === S.myId || S.isOwner) ? `<button type="button" class="link-btn" data-delc="${esc(c.id)}">Supprimer</button>` : ''}</div><p>${esc(c.text)}</p></div></li>`).join('') + '</ul>';
+}
+function updateDrawer(){
+  const l = S.listings[S.openId];
+  if (!l) { if (S.loaded.listings) { closeDrawer(); toast('Ce logement a été supprimé.'); } return; }
+  const inside = el => el && el.contains(document.activeElement);
+  const head = $('#dw-head'); if (head && !inside(head)) head.innerHTML = dwHead(l);
+  const facts = $('#dw-facts'); if (facts) facts.innerHTML = dwFacts(l);
+  const vote = $('#dw-vote'); if (vote && !inside(vote) && !S.myVoteDirty) { const save = $('#dw-save') ? $('#dw-save').textContent : ''; vote.innerHTML = dwVote(l); setSave(save); }
+  const others = $('#dw-others'); if (others) {
+    const wasLocked = !S.unlockedSeen.has(l.id);
+    others.innerHTML = dwOthers(l);
+    if (canSee(l.id) && wasLocked) { S.unlockedSeen.add(l.id); celebrateUnlock(); }
+  }
+  const cl = $('#dw-clist'); if (cl) { const b = flipCapture(cl); const had = new Set(b.keys()); cl.innerHTML = dwComments(l); if (had.size || $$('[data-k]', cl).length) flipPlay(cl, b, had.size > 0); }
+}
+function celebrateUnlock(){
+  const ov = $('#dw-ov'); if (!ov) return;
+  countUp(ov, st(S.openId).overall, 900);
+  anim($('#dw-others .tbl-wrap'), [{opacity:0, transform:'translateY(8px)'}, {opacity:1, transform:'none'}], {duration:420, delay:120, easing:EASE_OUT, fill:'backwards'});
+}
+function setScore(cid, n){
+  if (!canVote() || !S.openId) return;
+  const lid = S.openId; const before = hasCompleted(S.myId, lid);
+  editMyVote(v => { const cur = Object.assign({}, v.scores[lid] || {}); if (cur[cid] === n) delete cur[cid]; else cur[cid] = n; v.scores[lid] = cur; });
+  paintVoteRow(cid); saveVote(false);
+  if (before !== hasCompleted(S.myId, lid)) { S.st = computeStats(); updateOthersOnly(); }
+  schedule();
+}
+function updateOthersOnly(){
+  const l = S.listings[S.openId]; const o = $('#dw-others'); if (!l || !o) return;
+  const wasLocked = !S.unlockedSeen.has(l.id);
+  o.innerHTML = dwOthers(l);
+  if (canSee(l.id) && wasLocked) { S.unlockedSeen.add(l.id); celebrateUnlock(); toast('Les notes du groupe sont visibles'); }
+}
+function toggleMark(lid, kind){
+  if (!canVote()) return;
+  const other = kind === 'heart' ? 'veto' : 'heart';
+  editMyVote(v => {
+    if (v[kind] === lid) { v[kind] = null; v[kind + 'Why'] = ''; }
+    else { v[kind] = lid; v[kind + 'Why'] = ''; if (v[other] === lid) { v[other] = null; v[other + 'Why'] = ''; } }
+  });
+  saveVote(true);
+  $('#dw-vote').innerHTML = dwVote(S.listings[lid]); setSave('Enregistrement…');
+  const btn = $(`[data-${kind}="${CSS.escape(lid)}"]`);
+  const on = votesOf(S.myId)[kind] === lid;
+  if (btn) {
+    btn.focus();
+    if (on && kind === 'heart') { anim($('svg', btn), [{transform:'scale(1)'}, {transform:'scale(1.6)'}, {transform:'scale(1)'}], {duration:420, easing:EASE_OUT}); burst(btn); }
+    if (on && kind === 'veto') anim(btn, [{transform:'translateX(0)'}, {transform:'translateX(-6px)'}, {transform:'translateX(6px)'}, {transform:'translateX(-3px)'}, {transform:'none'}], {duration:340, easing:'ease-out'});
+  }
+  S.st = computeStats(); const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[lid]);
+  schedule();
+}
+
+/* ---------- Ajouter / modifier un logement ---------- */
+const ML = {shots:[], photo:null, editId:null, ai:false, lat:null, lng:null, ctl:null, touched:{}, ocrBusy:false, tTimer:0};
+function openListingModal(id){
+  if (!canEdit()) { toast('Ton accès ne permet pas d’ajouter de logement.'); return; }
+  if (!S.members[S.myId]) { openSettings(true); return; }
+  const l = id ? S.listings[id] : null;
+  ML.shots = []; ML.editId = id || null; ML.ai = false; ML.touched = {}; ML.photo = l && l.photo ? {type:'existing', id:l.photo} : null;
+  ML.lat = l ? num(l.lat) : null; ML.lng = l ? num(l.lng) : null;
+  openModal(listingModalHTML(l || {}));
+  renderShots(); renderPhotoZone(); checkDup();
+}
+function fieldHTML(id, label, input, opts){
+  return `<div class="frow${opts && opts.full ? ' full' : ''}"><label for="${id}">${label}${opts && opts.opt ? ' <span class="opt">facultatif</span>' : ''}</label>${input}${opts && opts.hint ? `<span class="hint">${opts.hint}</span>` : ''}</div>`;
+}
+function listingModalHTML(l){
+  const v = k => esc(l[k] == null ? '' : l[k]);
+  const depOpts = '<option value="">Choisir…</option>' + DEP_LIST.map(d => `<option value="${d.c}"${l.dept === d.c ? ' selected' : ''}>${esc(d.c + ' · ' + d.n)}</option>`).join('') + `<option value="autre"${l.dept === 'autre' ? ' selected' : ''}>Hors métropole</option>`;
+  const stOpts = statuses().map(s => `<option value="${esc(s.id)}"${statusOf(l).s.id === s.id ? ' selected' : ''}>${esc(s.label)}</option>`).join('');
+  return `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ml-title">
+  <div class="mc-head"><h2 class="mc-t" id="ml-title">${ML.editId ? 'Modifier la fiche' : 'Ajouter un logement'}</h2><button type="button" class="icon-btn" data-close aria-label="Fermer">${IC.x}</button></div>
+  <form id="f-listing" class="mc-body" novalidate>
+    <section class="import" aria-labelledby="ml-s1">
+      <h3 class="step-h" id="ml-s1">${ML.editId ? 'Recharger depuis l’annonce' : '1. Colle ce que tu as trouvé'}</h3>
+      ${fieldHTML('li-url', 'Lien de l’annonce', `<input id="li-url" class="input" type="url" inputmode="url" placeholder="https://www.airbnb.fr/rooms/…" value="${v('url')}">`)}
+      <div class="dup" id="li-dup" hidden role="status"></div>
+      <div class="drop" id="li-drop"><input type="file" id="li-shots" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only"><label for="li-shots" class="btn btn-sm btn-accent">Ajouter des captures d’écran</label><span class="hint">ou glisse-les ici, ou colle-les avec Ctrl + V</span></div>
+      <p class="hint">Description, équipements, prix, photos : le site lit le texte de tes captures et remplit la fiche tout seul. Une capture sans texte devient la photo de la fiche.</p>
+      <div class="shots" id="li-shot-list"></div>
+      <p class="ai-st" id="li-ai-st" role="status"></p>
+      ${fieldHTML('li-text', 'Ou colle le texte de l’annonce', '<textarea id="li-text" class="input" rows="3" placeholder="Titre, prix, description, équipements…"></textarea>', {opt:true})}
+    </section>
+    <section class="sec-gap" aria-labelledby="ml-s2">
+      <h3 class="step-h" id="ml-s2">${ML.editId ? 'La fiche' : '2. Vérifie la fiche'}</h3>
+      <p class="hint">Les champs surlignés ont été remplis automatiquement : vérifie-les avant d’enregistrer.</p>
+      <div class="fgrid">
+        ${fieldHTML('li-title', 'Titre', `<input id="li-title" class="input" required maxlength="80" value="${v('title')}" placeholder="Longère avec piscine"><span class="err" id="li-title-err" hidden>Donne un titre au logement.</span>`, {full:true})}
+        ${fieldHTML('li-source', 'Site', `<input id="li-source" class="input" maxlength="40" list="li-sources" value="${v('source')}" placeholder="Airbnb, Abritel…"><datalist id="li-sources">${SOURCES.map(s => `<option value="${esc(s[1])}"></option>`).join('')}</datalist>`)}
+        ${fieldHTML('li-status', 'Statut', `<select id="li-status">${stOpts}</select>`)}
+        ${fieldHTML('li-price', 'Prix total (€)', `<input id="li-price" class="input" inputmode="decimal" value="${v('price')}" placeholder="2480">`, {hint:'Le prix de tout le séjour, frais compris.'})}
+        ${fieldHTML('li-dates', 'Prix vu pour', `<input id="li-dates" class="input" maxlength="60" value="${v('priceDates')}" placeholder="7 nuits du 12 au 19 juillet">`, {opt:true})}
+        ${fieldHTML('li-commune', 'Commune', `<input id="li-commune" class="input" maxlength="60" value="${v('commune')}" placeholder="Sarlat-la-Canéda">`)}
+        ${fieldHTML('li-dept', 'Département', `<select id="li-dept">${depOpts}</select>`)}
+        ${fieldHTML('li-bedrooms', 'Chambres', `<input id="li-bedrooms" class="input" inputmode="numeric" value="${v('bedrooms')}" placeholder="5">`)}
+        ${fieldHTML('li-beds', 'Couchages', `<input id="li-beds" class="input" inputmode="numeric" value="${v('beds')}" placeholder="12">`)}
+        ${fieldHTML('li-eq', 'Équipements', `<input id="li-eq" class="input" maxlength="300" value="${esc((l.equipments || []).join(', '))}" placeholder="Piscine, Clim, Barbecue">`, {full:true, hint:'Sépare-les par des virgules.'})}
+        ${fieldHTML('li-note', 'Note', `<textarea id="li-note" class="input" rows="3" maxlength="600" placeholder="Ce qui t’a plu, ce qui coince…">${v('note')}</textarea>`, {full:true, opt:true})}
+        <div class="frow full"><span class="lbl">Photo</span><div class="photo-zone" id="li-photo-zone"></div></div>
+      </div>
+    </section>
+    <div class="mc-foot"><span class="err" id="li-save-err" role="alert"></span><button type="button" class="btn" data-close>Annuler</button><button type="submit" class="btn btn-accent" id="li-save">${ML.editId ? 'Enregistrer' : 'Ajouter au carnet'}</button></div>
+  </form></div>`;
+}
+function renderShots(){
+  const el = $('#li-shot-list'); if (!el) return;
+  const ST = {wait:'En attente', busy:'Lecture…', text:'Texte lu', photo:'Photo', error:'Illisible'};
+  el.innerHTML = ML.shots.map((s, i) => `<div class="shot"><img src="${s.url}" alt="Capture ${i + 1}"><div class="sa"><span class="shot-st shot-${s.state || 'wait'}">${ST[s.state] || ''}</span><label class="check-inline"><input type="radio" name="li-ph" data-shotph="${i}"${ML.photo && ML.photo.type === 'shot' && ML.photo.idx === i ? ' checked' : ''}>Photo de la fiche</label><button type="button" class="link-btn" data-rmshot="${i}">Retirer</button></div></div>`).join('');
+}
+function renderPhotoZone(){
+  const el = $('#li-photo-zone'); if (!el) return;
+  let prev = '';
+  const p = ML.photo;
+  if (p && p.type === 'existing') prev = `<img src="${esc(photoUrl(p.id))}" alt="Photo actuelle" data-fb>`;
+  else if (p && p.type === 'shot' && ML.shots[p.idx]) prev = `<img src="${ML.shots[p.idx].url}" alt="Capture choisie">`;
+  else if (p && p.type === 'file') prev = `<img src="${p.url}" alt="Photo choisie">`;
+  else prev = `<div class="ph ph${hashN(ML.editId || 'new', 6) + 1}">${IC.house}</div>`;
+  el.innerHTML = `<div class="photo-prev">${prev}</div><div class="sec-gap" style="gap:8px">
+    ${p ? '' : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux choisir une de tes captures ci-dessus.</span>'}
+    ${S.assets ? '<div><input type="file" id="li-photo-file" accept="image/png,image/jpeg,image/webp" class="sr-only"><label for="li-photo-file" class="btn btn-sm">Choisir une photo</label></div>' : '<span class="hint">L’ajout de photo n’est pas disponible avec ton accès.</span>'}
+    ${p ? '<button type="button" class="link-btn" data-act="rm-photo">Retirer la photo</button>' : ''}</div>`;
+}
+function addShots(files){
+  const imgs = Array.from(files || []).filter(f => /^image\//.test(f.type));
+  for (const f of imgs) { if (ML.shots.length >= 6) { toast('6 captures au maximum.'); break; } ML.shots.push({file:f, url:URL.createObjectURL(f), state:'wait'}); }
+  renderShots(); if (imgs.length) ocrQueue();
+}
+function autoSource(){
+  const s = $('#li-source'), u = $('#li-url'); if (!s || !u || s.value.trim()) return;
+  let host = ''; try { host = new URL(u.value.trim()).hostname; } catch (e) { return; }
+  const hit = SOURCES.find(x => host.includes(x[0])); if (hit) s.value = hit[1];
+}
+function normDept(x){
+  if (x == null) return null;
+  let c = String(x).trim().toUpperCase();
+  if (/^\d$/.test(c)) c = '0' + c;
+  if (DEP[c]) return c;
+  if (/^97\d$/.test(c)) return 'autre';
+  return null;
+}
+/* ---------- Lecture des captures (OCR gratuit, dans le navigateur, sans IA) ---------- */
+let tessP = null, workerP = null;
+function loadTesseract(){
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (!tessP) tessP = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = () => res(window.Tesseract); s.onerror = () => { tessP = null; rej(new Error('ocr')); };
+    document.head.append(s);
+  });
+  return tessP;
+}
+function getWorker(){
+  if (!workerP) { workerP = loadTesseract().then(T => T.createWorker('fra')); workerP.catch(() => { workerP = null; }); }
+  return workerP;
+}
+function setAiSt(t, busy){ const el = $('#li-ai-st'); if (!el) return; el.textContent = t; el.classList.toggle('busy', !!busy); }
+async function ocrQueue(){
+  if (ML.ocrBusy) return; ML.ocrBusy = true;
+  try {
+    let w;
+    try { setAiSt('Préparation de la lecture des captures (quelques secondes la première fois)', true); w = await getWorker(); }
+    catch (e) { setAiSt('La lecture des captures n’a pas pu démarrer : vérifie ta connexion, ou remplis la fiche à la main.'); ML.shots.forEach(s => { if (s.state === 'wait') s.state = 'error'; }); renderShots(); return; }
+    for (;;) {
+      const i = ML.shots.findIndex(s => s.state === 'wait'); if (i < 0) break;
+      const s = ML.shots[i]; s.state = 'busy'; renderShots();
+      setAiSt('Lecture de la capture ' + (i + 1) + ' sur ' + ML.shots.length, true);
+      try {
+        const {data} = await w.recognize(s.file);
+        s.text = data.text || '';
+        s.lines = (data.lines || []).map(x => ({t:String(x.text || '').trim(), h:x.bbox ? x.bbox.y1 - x.bbox.y0 : 0}));
+        s.state = s.text.replace(/[^A-Za-zÀ-ÿ0-9]/g, '').length < 40 ? 'photo' : 'text';
+      } catch (e) { s.state = 'error'; }
+      renderShots();
+    }
+    const n = runParse();
+    setAiSt(n ? plural(n, 'champ rempli', 'champs remplis') + ' automatiquement et surligné' + (n > 1 ? 's' : '') + ' : vérifie-' + (n > 1 ? 'les' : 'le') + '.' : 'Rien de reconnaissable dans ces captures : complète la fiche à la main.');
+  } finally {
+    ML.ocrBusy = false;
+    if ($('#f-listing') && ML.shots.some(s => s.state === 'wait')) ocrQueue();
+  }
+}
+function runParse(){
+  if (!$('#f-listing')) return 0;
+  const shots = ML.shots.filter(s => s.state === 'text');
+  const text = [$('#li-text').value].concat(shots.map(s => s.text)).join('\n');
+  const r = parseListing(text, shots.reduce((a, s) => a.concat(s.lines || []), []));
+  let n = 0;
+  const setF = (id, v) => {
+    if (v == null || v === '') return;
+    const el = $('#' + id); if (!el || ML.touched[id]) return;
+    if (el.value && !el.classList.contains('auto-filled')) return;
+    if (el.value === String(v)) return;
+    el.value = String(v); el.classList.add('auto-filled');
+    el.classList.remove('flash'); void el.offsetWidth; if (M()) el.classList.add('flash');
+    n++;
+  };
+  setF('li-title', r.title); setF('li-price', r.price); setF('li-dates', r.priceDates);
+  setF('li-commune', r.commune); setF('li-dept', r.dept);
+  setF('li-bedrooms', r.bedrooms); setF('li-beds', r.beds);
+  setF('li-eq', r.equipments && r.equipments.join(', '));
+  autoSource();
+  if (!ML.photo) { const i = ML.shots.findIndex(s => s.state === 'photo'); if (i >= 0) { ML.photo = {type:'shot', idx:i}; renderShots(); renderPhotoZone(); } }
+  if (n) ML.ai = true;
+  return n;
+}
+const EQ = [
+  ['Piscine', /piscine/], ['Jacuzzi', /jacuzzi|\bspa\b|bain à remous/], ['Climatisation', /climatis|\bclim\b/],
+  ['Barbecue', /barbecue|plancha/], ['Jardin', /jardin/], ['Terrasse', /terrasse/], ['Wifi', /wi-?fi/],
+  ['Parking', /parking|stationnement/], ['Lave-vaisselle', /lave-vaisselle/], ['Lave-linge', /lave-linge|machine à laver/],
+  ['Cheminée', /chemin[ée]e/], ['Vue mer', /vue (sur (la )?)?mer/], ['Plage à proximité', /plage/],
+  ['Animaux acceptés', /animaux (de compagnie )?(sont )?(acceptés|admis|autorisés)/], ['Ping-pong', /ping-?pong|tennis de table/],
+  ['Babyfoot', /baby-?foot/], ['Salle de jeux', /salle de jeux/], ['Lit bébé', /lit (pour )?bébé/], ['Vélos', /vélos?\b/]
+];
+const MOIS = 'janv|févr|fevr|mars|avr|mai|juin|juil|août|aout|sept|oct|nov|déc|dec';
+const deaccent = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+function deptFromCp(cp){
+  if (cp.startsWith('20')) return parseInt(cp, 10) < 20200 ? '2A' : '2B';
+  const c = cp.slice(0, 2); return DEP[c] ? c : null;
+}
+function parseListing(text, lines){
+  const r = {}; const t = String(text || '').replace(/[  ]/g, ' '); const low = t.toLowerCase();
+  // Prix : le montant marqué « total », sinon le plus élevé qui n'est pas un prix par nuit
+  const amounts = []; const re = /(\d{1,3}(?:[ .]\d{3})+|\d{2,6})(?:,\d{1,2})?\s?€|€\s?(\d{1,3}(?:[ .]\d{3})+|\d{2,6})/g; let m;
+  while ((m = re.exec(t))) {
+    const n = parseInt((m[1] || m[2]).replace(/[ .]/g, ''), 10);
+    if (n >= 80 && n < 60000) {
+      const ctx = low.slice(Math.max(0, m.index - 50), m.index + m[0].length + 30);
+      amounts.push({n, total:/total/.test(ctx), night:/(par|\/|x)\s*nuit|nuitée|night/.test(ctx) && !/total/.test(ctx)});
+    }
+  }
+  const tot = amounts.filter(a => a.total); const pool = tot.length ? tot : amounts.filter(a => !a.night);
+  if (pool.length) r.price = Math.max.apply(null, pool.map(a => a.n));
+  // Capacité et chambres
+  const cap = t.match(/(\d{1,2})\s*(?:voyageurs?|personnes?|couchages?|adultes?|pers\b)/i); if (cap && +cap[1] > 0) r.beds = +cap[1];
+  const ch = t.match(/(\d{1,2})\s*chambres?/i); if (ch && +ch[1] > 0) r.bedrooms = +ch[1];
+  // Dates vues avec le prix
+  const dr = t.match(new RegExp('(\\d{1,2})(?:er)?\\s*(?:(?:' + MOIS + ')[a-zéû]*\\.?)?\\s*(?:-|–|au|→)\\s*(\\d{1,2})\\s*(?:' + MOIS + ')[a-zéû]*\\.?(?:\\s*\\d{4})?', 'i'));
+  const nights = t.match(/(\d{1,2})\s*nuits?/i);
+  if (dr) r.priceDates = (dr[0].replace(/\s+/g, ' ').trim() + (nights ? ' (' + nights[1] + ' nuits)' : '')).slice(0, 60);
+  else if (nights) r.priceDates = nights[1] + ' nuits';
+  // Lieu : code postal, sinon « Commune, France », sinon nom de département
+  const cpm = t.match(/\b((?:0[1-9]|[1-8]\d|9[0-5])\d{3})\b(?!\s?€)(?:\s+([A-ZÉÈÎÂ][A-Za-zÀ-ÿ'’-]+(?:[ -][A-Za-zÀ-ÿ'’-]+){0,3}))?/);
+  if (cpm) { r.dept = deptFromCp(cpm[1]); if (cpm[2]) r.commune = cpm[2].trim(); }
+  if (!r.commune) {
+    const cm = t.match(/([A-ZÉÈÎÂ][A-Za-zÀ-ÿ'’-]+(?:[ -][A-Za-zÀ-ÿ'’-]+){0,3}),\s*(?:[A-ZÉÈÎÂ][A-Za-zÀ-ÿ'’ -]+,\s*)?France/);
+    if (cm && !/^(logement|maison|villa|appartement|gîte|gite|chambre|location)\b/i.test(cm[1])) r.commune = cm[1].trim();
+  }
+  if (!r.dept) {
+    const nt = ' ' + deaccent(t).replace(/[^A-Za-z0-9]+/g, ' ') + ' '; let best = null;
+    DEP_LIST.forEach(d => { const k = ' ' + deaccent(d.n).replace(/[^A-Za-z0-9]+/g, ' ') + ' '; if (nt.includes(k) && (!best || k.length > best.k.length)) best = {c:d.c, k}; });
+    if (best) r.dept = best.c;
+  }
+  // Équipements reconnus
+  const eq = EQ.filter(e => e[1].test(low)).map(e => e[0]); if (eq.length) r.equipments = eq.slice(0, 10);
+  // Titre : la ligne écrite le plus gros, hors boutons et chiffres
+  const bad = /(partager|enregistrer|afficher|photos?\b|réserver|reserver|connexion|inscription|airbnb|abritel|booking|vrbo|€|voyageurs?|chambres?|\blits?\b|salles? de bain|avis|superhost|hôte|hote|rechercher|menu|traduction)/i;
+  const okLine = s => s.length >= 8 && s.length <= 80 && !bad.test(s) && (s.replace(/[^A-Za-zÀ-ÿ]/g, '').length / s.length) > 0.6;
+  const cand = (lines || []).filter(x => okLine(x.t));
+  if (cand.length) r.title = cand.reduce((a, b) => (b.h > a.h ? b : a)).t.replace(/\s+/g, ' ');
+  else { const first = t.split('\n').map(s => s.trim()).find(okLine); if (first) r.title = first; }
+  return r;
+}
+async function shrink(file){
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.85));
+    return blob || file;
+  } catch (e) { return file; }
+}
+async function saveListing(){
+  const title = $('#li-title').value.trim();
+  const err = $('#li-title-err');
+  if (!title) { err.hidden = false; $('#li-title').focus(); return; }
+  err.hidden = true;
+  const btn = $('#li-save'); btn.disabled = true; btn.textContent = 'Enregistrement…'; $('#li-save-err').textContent = '';
+  const prev = ML.editId ? S.listings[ML.editId] : null;
+  let photo = ML.photo && ML.photo.type === 'existing' ? ML.photo.id : null;
+  const src = ML.photo && (ML.photo.type === 'shot' ? (ML.shots[ML.photo.idx] || {}).file : (ML.photo.type === 'file' ? ML.photo.file : null));
+  if (src) {
+    if (S.assets) {
+      try { const blob = await shrink(src); const r = await S.assets.upload(blob, {type: blob.type && /^image\/(jpeg|png|webp|gif)$/.test(blob.type) ? blob.type : 'image/jpeg'}); photo = r.id; }
+      catch (e) { toast(e && e.code === 'too_large' ? 'Photo trop lourde : elle n’a pas été ajoutée.' : 'La photo n’a pas pu être ajoutée.'); }
+    } else toast('La photo n’a pas été ajoutée : ton accès ne le permet pas.');
+  }
+  const data = {
+    title, url:safeUrl($('#li-url').value), source:$('#li-source').value.trim(),
+    price:num($('#li-price').value), priceDates:$('#li-dates').value.trim(),
+    commune:$('#li-commune').value.trim(), dept:$('#li-dept').value, lat:ML.lat, lng:ML.lng,
+    bedrooms:int($('#li-bedrooms').value), beds:int($('#li-beds').value),
+    equipments:$('#li-eq').value.split(/[,;\n]/).map(x => x.trim()).filter(Boolean).slice(0, 12).map(x => x.slice(0, 30)),
+    note:$('#li-note').value.trim(), status:$('#li-status').value || statuses()[0].id, photo,
+    importedWith: ML.ai ? 'lecture-captures' : ((prev && prev.importedWith) || 'manuel'),
+    addedBy: (prev && prev.addedBy) || S.myId, createdAt: (prev && prev.createdAt) || Date.now(),
+    updatedAt: Date.now(), updatedBy: S.myId
+  };
+  const id = ML.editId || S.db.collection('listings').doc().id;
+  try {
+    await writeDoc('listings/' + id, data);
+    if (prev && prev.photo && prev.photo !== photo && S.assets) S.assets.delete(prev.photo).catch(() => {});
+    closeModal();
+    toast(prev ? 'Fiche mise à jour' : 'Logement ajouté au carnet');
+    if (!prev) { S.highlight = id; if (S.view !== 'galerie') setView('galerie'); setTimeout(() => { S.highlight = null; schedule(); }, 2600); }
+  } catch (e) {
+    btn.disabled = false; btn.textContent = ML.editId ? 'Enregistrer' : 'Ajouter au carnet';
+    $('#li-save-err').textContent = 'L’enregistrement a échoué. Réessaie.';
+  }
+}
+
+/* ---------- Réglages et profil ---------- */
+function openSettings(welcome){
+  if (!canEdit()) return;
+  const me = S.members[S.myId] || {}; const c = cfg(); const owner = S.isOwner && !welcome;
+  const html = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="st-title">
+    <div class="mc-head"><h2 class="mc-t" id="st-title">${welcome ? 'Bienvenue dans le carnet' : 'Réglages'}</h2>${welcome ? '' : `<button type="button" class="icon-btn" data-close aria-label="Fermer">${IC.x}</button>`}</div>
+    <form id="f-settings" class="mc-body" data-welcome="${welcome ? 1 : ''}">
+      ${welcome ? '<p class="lead">On choisit ensemble où partir cet été. Dis-nous comment t’appeler : les autres verront qui a proposé et noté quoi.</p>' : ''}
+      <fieldset class="fs"><legend>Mon profil</legend>
+        ${fieldHTML('st-name', 'Prénom', `<input id="st-name" class="input" required maxlength="30" autocomplete="given-name" value="${esc(me.name || firstName(S.meName))}"><span class="err" id="st-name-err" hidden>Indique ton prénom.</span>`)}
+        ${welcome ? '' : `<label class="check"><input type="checkbox" id="st-motion"${motion ? ' checked' : ''}><span>Animations activées<small>Coupe-les si le mouvement te gêne. Ce réglage ne vaut que pour toi.</small></span></label>`}
+      </fieldset>
+      ${owner ? `<fieldset class="fs"><legend>Le carnet</legend>${fieldHTML('st-title-in', 'Titre', `<input id="st-title-in" class="input" maxlength="50" value="${esc(c.title)}">`)}</fieldset>
+      <fieldset class="fs"><legend>Les critères</legend><p class="hint">Retirer un critère ne supprime pas les notes déjà données, mais elles ne comptent plus.</p><div class="sec-gap" style="gap:10px" id="st-crits">${c.criteria.map(critRow).join('')}</div><div><button type="button" class="btn btn-sm" data-act="add-crit">+ Ajouter un critère</button></div></fieldset>` : ''}
+      <div class="mc-foot">${welcome ? '' : '<button type="button" class="btn btn-ghost" data-act="logout" style="margin-right:auto">Se déconnecter</button><button type="button" class="btn" data-close>Annuler</button>'}<button type="submit" class="btn btn-accent">${welcome ? 'C’est parti' : 'Enregistrer'}</button></div>
+    </form></div>`;
+  openModal(html, {locked:welcome});
+}
+let critSeq = 0;
+function critRow(c){
+  const k = 'cr' + (critSeq++);
+  return `<div class="crit-row" data-cid="${esc(c.id)}"><input class="input" id="${k}" maxlength="40" value="${esc(c.label)}" aria-label="Nom du critère"><button type="button" class="link-btn" data-rmcrit>Retirer</button></div>`;
+}
+async function saveSettings(form){
+  const name = $('#st-name').value.trim();
+  if (!name) { $('#st-name-err').hidden = false; $('#st-name').focus(); return; }
+  const me = S.members[S.myId] || {};
+  const welcome = !!form.dataset.welcome;
+  const mine = Object.assign({}, me, {name, joinedAt: me.joinedAt || Date.now()}); delete mine.payer;
+  S.members = Object.assign({}, S.members, {[S.myId]:mine});
+  writeDoc('members/' + S.myId, mine);
+  const mm = $('#st-motion'); if (mm) { motion = mm.checked; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); }
+  if (S.isOwner && !welcome) {
+    const c = cfg();
+    const criteria = $$('#st-crits .crit-row').map(r => { const lbl = $('input.input', r).value.trim(); if (!lbl) return null; return {id:r.dataset.cid, label:lbl}; }).filter(Boolean);
+    const next = Object.assign({}, DEFAULT_CONFIG, S.config || {}, {title:($('#st-title-in').value.trim() || DEFAULT_CONFIG.title), criteria: criteria.length ? criteria : c.criteria});
+    writeDoc('config/main', next);
+  }
+  closeModal(true);
+  toast(welcome ? 'Bienvenue, ' + name + ' !' : 'Réglages enregistrés');
+  schedule();
+}
+
+/* ---------- Fenêtre générique ---------- */
+function openModal(html, opts){
+  const m = $('#modal');
+  S.modalTrigger = document.activeElement;
+  m.innerHTML = html; m.dataset.locked = opts && opts.locked ? '1' : '';
+  m.hidden = false; void m.offsetWidth; m.classList.add('open');
+  $('#app').inert = true; $('#drawer-wrap').inert = true;
+  setTimeout(() => { const f = m.querySelector('input:not(.sr-only),textarea,select,button:not([data-close])'); if (f) f.focus(); }, 40);
+}
+function closeModal(force){
+  const m = $('#modal'); if (m.hidden) return;
+  if (m.dataset.locked && !force) return;
+  if (ML.ctl) ML.ctl.abort();
+  ML.shots.forEach(s => URL.revokeObjectURL(s.url)); if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url);
+  ML.shots = []; ML.photo = null;
+  m.classList.remove('open');
+  const fin = () => { if (!m.classList.contains('open')) { m.hidden = true; m.innerHTML = ''; } };
+  if (M()) setTimeout(fin, 260); else fin();
+  $('#drawer-wrap').inert = false; $('#app').inert = !!S.openId;
+  const t = S.modalTrigger; if (t && document.contains(t)) t.focus();
+}
+
+/* ---------- Révélation ---------- */
+function maybeReveal(){
+  const c = cfg();
+  if (!c.closed || !c.closedAt || S.revealPlayed || !S.loaded.listings || !S.loaded.votes || !S.loaded.members) return;
+  const k = 'gite-reveal-' + c.closedAt;
+  if (store.get(k)) { S.revealPlayed = true; return; }
+  if (!ranking().some(r => r.s.overall != null)) return;
+  S.revealPlayed = true; store.set(k, '1');
+  playReveal();
+}
+let revealing = false, revealSkip = null;
+async function playReveal(){
+  if (revealing) return;
+  const top = ranking().filter(r => r.s.overall != null).slice(0, 3);
+  if (!top.length) return;
+  revealing = true;
+  if (S.openId) closeDrawer();
+  const ov = $('#reveal'), slots = $('#rv-slots');
+  $('#rv-sub').textContent = 'Les votes sont clos · ' + plural(memberIds().length, 'votant') + ' · ' + plural(listingsArr().length, 'logement') + ' comparés';
+  $('#rv-title').textContent = 'Et notre gîte d’été est…';
+  slots.innerHTML = top.map((r, i) => `<div class="rv-slot r${i + 1}" data-rank="${i + 1}">${stepHTML(r, i + 1, true)}</div>`).join('');
+  $('#rv-done').hidden = true; $('#rv-skip').hidden = false;
+  ov.hidden = false; void ov.offsetWidth; ov.classList.add('open');
+  $('#app').inert = true;
+  $('#rv-skip').focus();
+  let skipped = !M(); const timers = [];
+  const wait = ms => new Promise(res => { if (skipped) return res(); const t = setTimeout(res, ms); timers.push([t, res]); });
+  revealSkip = () => { skipped = true; timers.forEach(([t, res]) => { clearTimeout(t); res(); }); };
+  await wait(1100);
+  for (const rank of [3, 2, 1]) {
+    const s = slots.querySelector(`[data-rank="${rank}"]`); if (!s) continue;
+    s.classList.add('in');
+    const n = s.querySelector('[data-score]'); countUp(n, num(n.dataset.score), skipped ? 0 : 1000);
+    await wait(rank === 1 ? 900 : 1500);
+  }
+  const w = slots.querySelector('[data-rank="1"]'); if (w) w.classList.add('win');
+  $('#rv-title').textContent = top[0].l.title;
+  if (!skipped) confetti();
+  $('#rv-skip').hidden = true; $('#rv-done').hidden = false; $('#rv-done').focus();
+  revealing = false; revealSkip = null;
+}
+function closeReveal(){
+  if (revealSkip) revealSkip();
+  const ov = $('#reveal'); ov.classList.remove('open');
+  const fin = () => { ov.hidden = true; const cv = $('#confetti'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); };
+  if (M()) setTimeout(fin, 380); else fin();
+  $('#app').inert = !!S.openId;
+  if (S.view !== 'podium') setView('podium');
+}
+function confetti(){
+  const cv = $('#confetti'); const ctx = cv.getContext('2d'); const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = innerWidth, H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cs = getComputedStyle(document.documentElement);
+  const cols = ['--accent', '--olive-bg', '--av3', '--av1', '--av4', '--av2'].map(v => cs.getPropertyValue(v).trim() || '#B8502D');
+  const P = Array.from({length:120}, () => ({x:Math.random() * W, y:-20 - Math.random() * H * 0.6, w:6 + Math.random() * 7, h:9 + Math.random() * 10, r:Math.random() * 6.28, vr:(Math.random() - 0.5) * 0.18, vy:2.2 + Math.random() * 2.6, vx:(Math.random() - 0.5) * 1.4, sw:Math.random() * 6.28, c:cols[(Math.random() * cols.length) | 0]}));
+  const t0 = performance.now();
+  const frame = t => {
+    const el = t - t0; ctx.clearRect(0, 0, W, H);
+    ctx.globalAlpha = el > 3400 ? Math.max(0, 1 - (el - 3400) / 900) : 1;
+    for (const p of P) { p.sw += 0.035; p.x += p.vx + Math.sin(p.sw) * 0.7; p.y += p.vy; p.r += p.vr; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.scale(1, Math.cos(p.sw * 1.6)); ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore(); }
+    if (el < 4300 && !$('#reveal').hidden) requestAnimationFrame(frame); else ctx.clearRect(0, 0, W, H);
+  };
+  requestAnimationFrame(frame);
+}
+
+/* ---------- Récapitulatif ---------- */
+function mdCell(s){ return String(s == null ? '' : s).replace(/\|/g, '/').replace(/\n/g, ' '); }
+function buildMD(){
+  const c = cfg(), t = S.trip || {}, cs = crits(); const ranked = ranking(); const ids = memberIds();
+  const L = [];
+  L.push('# ' + (c.title || DEFAULT_CONFIG.title) + ' : récapitulatif', '');
+  L.push('Exporté le ' + fmtLong(Date.now()) + (c.closed ? ' · votes clos le ' + fmtLong(c.closedAt) : ' · votes en cours'), '');
+  L.push('- Destination : ' + (t.destination || 'France'), '- Période : ' + (t.periode || 'à définir'), '- Budget : ' + (t.budget || 'à définir'), '- Groupe : ' + plural(ids.length, 'inscrit'), '');
+  L.push('## Classement', '');
+  ranked.forEach((r, i) => {
+    const l = r.l, s = r.s;
+    L.push((i + 1) + '. **' + mdCell(l.title) + '** · ' + (s.overall == null ? 'pas noté' : fmtScore(s.overall) + ' / 10') + ' · ' + plural(s.hearts.length, 'coup de cœur', 'coups de cœur') + (s.vetos.length ? ' · veto de ' + s.vetos.map(nameOf).join(', ') : '') + ' · ' + fmtPrice(num(l.price)) + ' · ' + placeOf(l) + ' · ' + statusOf(l).s.label + (safeUrl(l.url) ? ' · ' + safeUrl(l.url) : ''));
+  });
+  L.push('', '## Notes moyennes par critère', '');
+  L.push('| Logement | ' + cs.map(x => mdCell(x.label)).join(' | ') + ' | Moyenne |');
+  L.push('|' + ' --- |'.repeat(cs.length + 2));
+  ranked.forEach(r => L.push('| ' + mdCell(r.l.title) + ' | ' + cs.map(x => fmtScore(r.s.per[x.id])).join(' | ') + ' | ' + fmtScore(r.s.overall) + ' |'));
+  L.push('', '## Qui a voté quoi', '');
+  L.push('| Personne | Coup de cœur | Veto |', '| --- | --- | --- |');
+  ids.forEach(u => { const v = votesOf(u); L.push('| ' + mdCell(nameOf(u)) + ' | ' + mdCell(v.heart && S.listings[v.heart] ? S.listings[v.heart].title : '–') + ' | ' + mdCell(v.veto && S.listings[v.veto] ? S.listings[v.veto].title : '–') + ' |'); });
+  L.push('', '## Détail des notes', '');
+  ranked.forEach(r => {
+    L.push('### ' + mdCell(r.l.title), '');
+    L.push('| Personne | ' + cs.map(x => mdCell(x.label)).join(' | ') + ' |', '|' + ' --- |'.repeat(cs.length + 1));
+    ids.forEach(u => { const x = (votesOf(u).scores || {})[r.l.id]; if (x && Object.keys(x).length) L.push('| ' + mdCell(nameOf(u)) + ' | ' + cs.map(cc => typeof x[cc.id] === 'number' ? x[cc.id] : '–').join(' | ') + ' |'); });
+    L.push('');
+  });
+  return L.join('\n');
+}
+function buildCSV(){
+  const cs = crits(); const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const rows = [['Logement', 'Personne'].concat(cs.map(c => c.label), ['Coup de cœur', 'Veto']).map(q).join(';')];
+  listingsArr().forEach(l => memberIds().forEach(u => {
+    const x = (votesOf(u).scores || {})[l.id] || {}; const v = votesOf(u);
+    if (!Object.keys(x).length && v.heart !== l.id && v.veto !== l.id) return;
+    rows.push([l.title, nameOf(u)].concat(cs.map(c => typeof x[c.id] === 'number' ? x[c.id] : ''), [v.heart === l.id ? 'oui' : '', v.veto === l.id ? 'oui' : '']).map(q).join(';'));
+  }));
+  return '﻿' + rows.join('\r\n');
+}
+async function download(kind){
+  if (!S.downloads) { toast('Le téléchargement n’est pas disponible ici.'); return; }
+  try {
+    await S.downloads.save(kind === 'csv' ? {filename:'notre-gite-ete-notes.csv', data:buildCSV()} : {filename:'notre-gite-ete-recap.md', data:buildMD()});
+    toast('Fichier enregistré');
+  } catch (e) { if (!e || e.code !== 'declined') toast('Le fichier n’a pas pu être enregistré.'); }
+}
+
+/* ---------- Messages ---------- */
+function toast(msg){
+  if (!msg) return;
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; $('#toasts').append(t);
+  anim(t, [{opacity:0, transform:'translateY(16px) scale(.92)'}, {opacity:1, transform:'none'}], {duration:420, easing:EASE_BACK});
+  setTimeout(() => { const a = anim(t, [{opacity:1}, {opacity:0, transform:'translateY(6px)'}], {duration:200, easing:EASE_OUT, fill:'forwards'}); if (a) a.finished.then(() => t.remove(), () => t.remove()); else t.remove(); }, 2800);
+}
+
+/* ---------- Évènements ---------- */
+function bindStatic(){
+  window.addEventListener('resize', () => { placeInd(false); closePop(); });
+  window.addEventListener('scroll', closePop, {passive:true});
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => placeInd(false));
+  $('#motion-btn').addEventListener('click', () => { motion = !motion; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); toast(motion ? 'Animations activées' : 'Animations coupées'); });
+  $('#me-btn').addEventListener('click', () => openSettings(false));
+  $('#rv-skip').addEventListener('click', () => { if (revealSkip) revealSkip(); });
+  $('#rv-done').addEventListener('click', closeReveal);
+
+  document.addEventListener('error', e => { const t = e.target; if (t && t.tagName === 'IMG' && t.hasAttribute('data-fb')) { const s = document.createElement('span'); s.innerHTML = IC.house; t.replaceWith(s.firstChild); } }, true);
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
+    const t = e.target.closest('[data-view],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    if (t && t.id === 'dw-close') { closeDrawer(); return; }
+    if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
+    const d = t.dataset;
+    if (d.pop) return openPop(t);
+    if (d.week) return cycleWeek(d.week);
+    if (d.fixweek) return fixWeek(d.fixweek);
+    if (d.dupopen) { closeModal(true); return openListing(d.dupopen); }
+    if (d.view) return setView(d.view);
+    if (d.closeDrawer !== undefined) return closeDrawer();
+    if (d.close !== undefined) return closeModal(true);
+    if (d.score) return setScore(d.c, +d.score);
+    if (d.heart) return toggleMark(d.heart, 'heart');
+    if (d.veto) return toggleMark(d.veto, 'veto');
+    if (d.open) { if (t.closest('.modal')) return; return openListing(d.open); }
+    if (d.trip) return editTrip(d.trip);
+    if (d.pickDep) return selectDep(d.pickDep);
+    if (d.dep) { if (t.closest('.fr-big')) return selectDep(d.dep); S.mapSel = d.dep; lastView = null; S.view = 'galerie'; setView('carte'); return; }
+    if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
+    if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
+    if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
+    if (d.rmshot) { const i = +d.rmshot; const s = ML.shots[i]; if (s) URL.revokeObjectURL(s.url); ML.shots.splice(i, 1); if (ML.photo && ML.photo.type === 'shot') { if (ML.photo.idx === i) ML.photo = null; else if (ML.photo.idx > i) ML.photo.idx--; } renderShots(); renderPhotoZone(); return; }
+    switch (d.act) {
+      case 'add': return openListingModal();
+      case 'edit': return openListingModal(d.id);
+      case 'profile': return openSettings(!S.members[S.myId]);
+      case 'reset-filters': S.f.dept = ''; S.f.status = ''; return renderView();
+      case 'map-reset': return selectDep(null);
+      case 'del': S.dwConfirm = true; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); { const b = $('[data-act="del-cancel"]'); if (b) b.focus(); } return;
+      case 'del-cancel': S.dwConfirm = false; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); return;
+      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && l.photo && S.assets) S.assets.delete(l.photo).catch(() => {}); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
+      case 'close-votes': S.confirmClose = true; return fillPodium();
+      case 'close-cancel': S.confirmClose = false; return fillPodium();
+      case 'close-confirm': S.confirmClose = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:true, closedAt:Date.now()})); return;
+      case 'reopen': S.revealPlayed = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:false, closedAt:null})).then(() => toast('Les votes sont rouverts')); return;
+      case 'replay': return playReveal();
+      case 'logout': SB.auth.signOut().finally(() => location.reload()); return;
+      case 'news-hide': { S.newsHidden = true; const n = $('#news'); const a = anim(n, [{opacity:1, transform:'none'}, {opacity:0, transform:'translateY(-8px)'}], {duration:220, easing:EASE_OUT, fill:'forwards'}); if (a) a.finished.then(renderNews, renderNews); else renderNews(); return; }
+      case 'unfix-week': if (S.isOwner) { S.trip = Object.assign({}, S.trip, {week:null, periode:'Été ' + YEAR + ', dates à définir', updatedAt:Date.now()}); writeDoc('trip/main', S.trip); schedule(); } return;
+      case 'dl-md': return download('md');
+      case 'dl-csv': return download('csv');
+      case 'add-crit': { const box = $('#st-crits'); box.insertAdjacentHTML('beforeend', critRow({id:'c' + Date.now().toString(36), label:''})); $('.crit-row:last-child input', box).focus(); return; }
+      case 'rm-photo': if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url); ML.photo = null; renderShots(); renderPhotoZone(); return;
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.target.getAttribute && e.target.getAttribute('role') === 'tab' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      const i = VIEWS.indexOf(S.view) + (e.key === 'ArrowRight' ? 1 : -1);
+      const v = VIEWS[(i + VIEWS.length) % VIEWS.length]; setView(v); $('#tab-' + v).focus(); e.preventDefault(); return;
+    }
+    if (e.key === 'Escape') {
+      if (!$('#pop').hidden) { closePop(); if (S.popBtn && document.contains(S.popBtn)) S.popBtn.focus(); return; }
+      if (!$('#reveal').hidden) { if (revealing && revealSkip) revealSkip(); else closeReveal(); return; }
+      if (!$('#modal').hidden) { closeModal(); return; }
+      if (S.openId) { closeDrawer(); return; }
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pin')) { e.preventDefault(); openListing(e.target.dataset.open); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'dw-ctext') { e.preventDefault(); $('#dw-cform').requestSubmit(); }
+  });
+  document.addEventListener('change', e => {
+    const t = e.target;
+    if (t.closest && t.closest('#f-listing .fgrid')) { ML.touched[t.id] = true; t.classList.remove('auto-filled'); }
+    if (t.id === 'f-dept') { S.f.dept = t.value; renderView(); }
+    else if (t.id === 'f-status') { S.f.status = t.value; renderView(); }
+    else if (t.id === 'f-sort') { S.f.sort = t.value; renderView(); }
+    else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
+    else if (t.id === 'li-shots') { addShots(t.files); t.value = ''; }
+    else if (t.id === 'li-photo-file') { const f = t.files && t.files[0]; if (f) { if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url); ML.photo = {type:'file', file:f, url:URL.createObjectURL(f)}; renderShots(); renderPhotoZone(); } }
+    else if (t.dataset && t.dataset.shotph !== undefined) { ML.photo = {type:'shot', idx:+t.dataset.shotph}; renderPhotoZone(); }
+    else if (t.id === 'li-dept') { ML.lat = null; ML.lng = null; }
+  });
+  document.addEventListener('input', e => {
+    if (e.target.id === 'li-url') { autoSource(); checkDup(); }
+    if (e.target.id === 'li-text') { clearTimeout(ML.tTimer); ML.tTimer = setTimeout(() => { const n = runParse(); if (n) setAiSt(plural(n, 'champ rempli', 'champs remplis') + ' à partir du texte : vérifie.'); }, 700); }
+    else if (e.target.closest && e.target.closest('#f-listing .fgrid')) { ML.touched[e.target.id] = true; e.target.classList.remove('auto-filled'); }
+    if ((e.target.id === 'dw-hwhy' || e.target.id === 'dw-vwhy') && canVote()) {
+      const k = e.target.id === 'dw-hwhy' ? 'heartWhy' : 'vetoWhy'; const val = e.target.value.slice(0, 160);
+      editMyVote(v => { v[k] = val; }); saveVote(false);
+    }
+    if (e.target.id === 'li-commune') { ML.lat = null; ML.lng = null; }
+  });
+  document.addEventListener('submit', e => {
+    const f = e.target; e.preventDefault();
+    if (f.id === 'f-login') doLogin();
+    else if (f.id === 'f-listing') saveListing();
+    else if (f.id === 'f-settings') saveSettings(f);
+    else if (f.id === 'dw-cform') {
+      const ta = $('#dw-ctext'); const text = ta.value.trim(); if (!text || !S.openId) return;
+      if (!S.members[S.myId]) { openSettings(true); return; }
+      const ref = S.db.collection('comments').doc();
+      const c = {lid:S.openId, by:S.myId, text:text.slice(0, 1000), at:Date.now()};
+      S.comments = Object.assign({}, S.comments, {[ref.id]:Object.assign({id:ref.id}, c)});
+      ta.value = ''; updateDrawer();
+      writeDoc('comments/' + ref.id, c);
+    }
+  });
+  document.addEventListener('paste', e => {
+    if (!$('#f-listing')) return;
+    const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter(f => /^image\//.test(f.type));
+    if (files.length) { e.preventDefault(); addShots(files); }
+  });
+  document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('#li-drop'); if (z) { e.preventDefault(); z.classList.add('over'); } });
+  document.addEventListener('dragleave', e => { const z = e.target.closest && e.target.closest('#li-drop'); if (z) z.classList.remove('over'); });
+  document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('#li-drop'); if (z) { e.preventDefault(); z.classList.remove('over'); addShots(e.dataTransfer.files); } });
+}
+
+boot();
+})();
