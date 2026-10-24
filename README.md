@@ -33,6 +33,7 @@ Pour chaque personne : **Authentication** → **Users** → **Add user** → **C
 | Auto Confirm User | **coché** |
 
 La personne se connecte ensuite sur le site avec son **prénom** (accents et majuscules acceptés) et son **code**.
+Un compte créé avec une vraie adresse e-mail fonctionne aussi : la personne tape alors son **adresse e-mail** à la place du prénom.
 Aucun e-mail n'est envoyé : l'adresse `example.com` n'existe pas, elle sert seulement d'identifiant.
 
 ### 4. Te déclarer organisateur

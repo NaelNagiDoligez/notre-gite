@@ -502,18 +502,20 @@ function hideLogin(){ $('#login').hidden = true; $('#app').inert = false; }
 async function doLogin(){
   const name = $('#lg-name').value.trim(), code = $('#lg-code').value;
   const err = $('#lg-err'), btn = $('#lg-btn');
-  if (!name || !code) { err.textContent = 'Indique ton prénom et ton code.'; return; }
+  if (!name || !code) { err.textContent = 'Indique ton prénom (ou ton e-mail) et ton code.'; return; }
+  const isMail = name.includes('@');
+  const email = isMail ? name.toLowerCase() : slug(name) + '@' + MAIL_DOMAIN;
   btn.disabled = true; btn.textContent = 'Connexion…'; err.textContent = '';
   let res;
-  try { res = await SB.auth.signInWithPassword({email:slug(name) + '@' + MAIL_DOMAIN, password:code}); }
+  try { res = await SB.auth.signInWithPassword({email, password:code}); }
   catch (e) { res = {error:{message:'network'}}; }
   btn.disabled = false; btn.textContent = 'Entrer';
   if (res.error || !res.data || !res.data.session) {
-    err.textContent = /fetch|network/i.test((res.error && res.error.message) || '') ? 'Connexion impossible : vérifie ta connexion internet.' : 'Prénom ou code incorrect. Vérifie l’orthographe ou demande ton code à l’organisateur.';
+    err.textContent = /fetch|network/i.test((res.error && res.error.message) || '') ? 'Connexion impossible : vérifie ta connexion internet.' : 'Identifiant ou code incorrect. Vérifie l’orthographe ou demande ton code à l’organisateur.';
     anim($('.login-card'), [{transform:'translateX(0)'}, {transform:'translateX(-8px)'}, {transform:'translateX(8px)'}, {transform:'translateX(-4px)'}, {transform:'none'}], {duration:360, easing:'ease-out'});
     return;
   }
-  store.set('gite-name', cap1(name));
+  if (!isMail) store.set('gite-name', cap1(name));
   start(res.data.session);
 }
 

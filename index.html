@@ -552,8 +552,8 @@ button.dc:active{transform:scale(.9)}
 <div class="login" id="login" hidden>
   <form class="login-card" id="f-login" novalidate>
     <h1 class="h1"><span class="title-wrap">Notre gîte d'été<svg class="squig" viewBox="0 0 300 16" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 10 C 38 3, 68 14, 108 8 S 176 2, 218 9 S 276 13, 297 5"/></svg></span></h1>
-    <p class="muted" style="margin-top:6px">Entre ton prénom et le code que l’organisateur t’a donné.</p>
-    <div class="frow"><label for="lg-name">Prénom</label><input id="lg-name" class="input" autocomplete="username" autocapitalize="words" required></div>
+    <p class="muted" style="margin-top:6px">Entre ton prénom (ou ton adresse e-mail) et le code que l’organisateur t’a donné.</p>
+    <div class="frow"><label for="lg-name">Prénom ou e-mail</label><input id="lg-name" class="input" autocomplete="username" autocapitalize="off" spellcheck="false" required></div>
     <div class="frow"><label for="lg-code">Code</label><input id="lg-code" class="input" type="password" autocomplete="current-password" required></div>
     <p class="err" id="lg-err" role="alert"></p>
     <button type="submit" class="btn btn-accent" id="lg-btn">Entrer</button>
