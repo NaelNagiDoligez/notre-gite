@@ -62,13 +62,19 @@ Le site est alors disponible à l'adresse `https://<ton-compte>.github.io/notre-
 | `index.html` | la page et ses styles |
 | `app.js` | toute l'application |
 | `motion.js` | le motion design (GSAP) : intro, transitions d'onglets, entrée des cartes, podium, carte, révélation du gagnant |
+| `scene.js` | le décor dessiné en fond (montagnes, mer, plage, animaux, silhouettes) et le ciel qui suit l'heure (soleil, lune, étoiles, thème clair/sombre) ; `?h=14.5` à la fin de l'adresse pour tester une heure |
 | `vendor/gsap/` | GSAP 3.15.0 et ses plugins (ScrollTrigger, SplitText, DrawSVG, CustomEase, Physics2D), gratuits depuis 2025, copiés ici pour ne dépendre d'aucun CDN |
 | `france.js` | les contours des départements pour la carte |
 | `config.js` | l'adresse et la clé publique Supabase |
 | `supabase/setup.sql` | création de la base, des règles d'accès et du stockage des photos |
 
-## Animations
+## Animations et décor
 
-Le bouton **Animations** coupe tout le motion design ; le réglage « réduire les animations » du système est respecté aussi.
-Les gestes fréquents (survol, clics) restent discrets ; les grandes séquences (intro, révélation du gagnant) sont réservées aux moments rares.
-Si `motion.js` ou GSAP ne se charge pas, le site retombe sur les animations CSS d'origine.
+La **roue crantée** en haut à droite ouvre les réglages : animations, décor illustré, thème (selon l'heure, clair, sombre, comme l'appareil), changement d'onglet (glissement doux ou papier crème), profil et déconnexion. Ces réglages ne valent que pour la personne (ils sont gardés dans son navigateur).
+
+- **Ciel selon l'heure** : le soleil, la lune, les étoiles et les couleurs suivent l'heure de l'appareil ; la nuit (de 20 h 30 à 6 h 30), le thème sombre se met tout seul si le thème est sur « Selon l'heure ».
+- **Tampon « Retenu »** : il claque quand l'organisateur retient une semaine ou passe un logement en « Réservé ».
+- **Carte qui se retourne** (bouton rond sur la photo) : le dos montre les notes par critère, cachées tant qu'on n'a pas noté le logement.
+- **Gestes courants** : notes qui se colorent du bleu à l'orange, cœur qui bat, veto qui « dit non », photo en parallaxe dans la fiche, onde et colonnes qui se rééquilibrent dans Dates, meilleure et pire note de chaque ligne dans le comparateur.
+
+Les gestes fréquents restent discrets ; les grandes séquences sont réservées aux moments rares. Si `motion.js` ou GSAP ne se charge pas, le site retombe sur les animations CSS d'origine.

@@ -33,6 +33,7 @@ const POP = [{transform:'scale(1)'}, {transform:'scale(1.4)'}, {transform:'scale
 const GM = window.GiteMotion || {}; /* couche GSAP (motion.js), facultative */
 
 const IC = {
+  flip:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7"/></svg>',
   house:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/></svg>',
   yes:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   maybe:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 13c2.5-3 4.5-3 7 0s4.5 3 7 0"/></svg>',
@@ -85,9 +86,49 @@ let motion = (() => { const v = store.get('gite-motion'); return v ? v === 'on' 
 const M = () => motion;
 function applyMotion(){
   document.documentElement.dataset.motion = motion ? 'on' : 'off';
-  const b = $('#motion-btn'); if (b) b.setAttribute('aria-pressed', String(motion));
   if (!motion) { if (revealSkip) revealSkip(); if (GM.disable) GM.disable(); }
-  else if (GM.spin && S.introDone) GM.spin();
+  if ($('#gear-pop') && !$('#gear-pop').hidden) renderGear();
+}
+
+/* ---------- Roue crantée : réglages rapides ---------- */
+const PREFS = {
+  scene: () => store.get('gite-scene') !== 'off',
+  theme: () => store.get('gite-theme') || 'time',
+  wipe: () => store.get('gite-wipe') || 'fade'
+};
+function renderGear(){
+  const p = $('#gear-pop'); if (!p) return;
+  const sw = (k, label, hint, on) => `<button type="button" class="gp-sw" role="switch" aria-checked="${on}" data-pref="${k}"><span class="gp-l"><strong>${label}</strong><small>${hint}</small></span><span class="sw" aria-hidden="true"></span></button>`;
+  const opt = (v, cur, l) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`;
+  const name = S.members[S.myId] ? S.members[S.myId].name : '';
+  const out = SB && S.myId;
+  p.innerHTML = `<div class="gp-head"><h2 class="gp-t">Réglages</h2><button type="button" class="icon-btn" data-gear-close aria-label="Fermer">${IC.x}</button></div>
+    ${canEdit() ? `<div class="gp-me"><span class="gp-av">${avatar(S.myId, 'av-sm')}</span><div><strong>${esc(name || 'Mon profil')}</strong><button type="button" class="link-btn" data-act="my-settings">Mon profil et le carnet</button></div></div>` : ''}
+    <div class="gp-list">
+      ${sw('motion', 'Animations', 'Mouvement et transitions', motion)}
+      ${sw('scene', 'Décor illustré', 'Paysage et ciel qui suit l’heure', PREFS.scene())}
+    </div>
+    <label class="gp-f"><span>Thème</span><select id="gp-theme" class="input">${opt('time', PREFS.theme(), 'Selon l’heure')}${opt('light', PREFS.theme(), 'Clair')}${opt('dark', PREFS.theme(), 'Sombre')}${opt('system', PREFS.theme(), 'Comme mon appareil')}</select></label>
+    <label class="gp-f"><span>Changement d’onglet</span><select id="gp-wipe" class="input">${opt('fade', PREFS.wipe(), 'Glissement doux')}${opt('paper', PREFS.wipe(), 'Papier crème')}</select></label>
+    ${out ? '<button type="button" class="btn gp-out" data-act="logout">Se déconnecter</button>' : ''}`;
+}
+function openGear(){
+  const p = $('#gear-pop'), b = $('#gear-btn'); if (!p.hidden) { closeGear(); return; }
+  closePop(); renderGear(); p.hidden = false; b.setAttribute('aria-expanded', 'true');
+  const r = b.getBoundingClientRect(); p.style.top = Math.round(r.bottom + 8) + 'px'; p.style.right = Math.max(16, Math.round(innerWidth - r.right)) + 'px'; p.style.left = 'auto';
+  anim(p, [{opacity:0, transform:'translateY(-8px) scale(.96)'}, {opacity:1, transform:'none'}], {duration:240, easing:EASE_OUT});
+  const f = $('[data-pref]', p) || $('button', p); if (f) f.focus({preventScroll:true});
+}
+function closeGear(refocus){
+  const p = $('#gear-pop'); if (!p || p.hidden) return;
+  p.hidden = true; $('#gear-btn').setAttribute('aria-expanded', 'false'); if (refocus) $('#gear-btn').focus();
+}
+function setPref(k, v){
+  if (k === 'motion') { motion = !motion; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); return; }
+  if (k === 'scene') { store.set('gite-scene', PREFS.scene() ? 'off' : 'on'); }
+  if (k === 'theme') store.set('gite-theme', v);
+  if (k === 'wipe') store.set('gite-wipe', v);
+  if (window.GiteScene) GiteScene.refresh();
 }
 function anim(el, kf, opts){ if (!M() || !el || !el.animate) return null; try { return el.animate(kf, opts); } catch (e) { return null; } }
 function flipCapture(root){ const m = new Map(); if (!root) return m; $$('[data-k]', root).forEach(el => m.set(el.dataset.k, el.getBoundingClientRect())); return m; }
@@ -121,7 +162,7 @@ const S = {
   config:null, trip:{}, members:{}, votes:{}, listings:{}, comments:{},
   loaded:{members:false, listings:false, votes:false},
   view:'galerie', f:{dept:'', status:'', sort:'score'}, cmp:{key:'overall', dir:-1},
-  openId:null, mapSel:null, myVoteDirty:false, onboardShown:false, confirmClose:false, dwConfirm:false,
+  flipped:new Set(), stampWeek:false, openId:null, mapSel:null, myVoteDirty:false, onboardShown:false, confirmClose:false, dwConfirm:false,
   st:{}, unlockedSeen:new Set(), highlight:null, revealPlayed:false,
   navDir:0, newsHidden:false, prevMarks:{}, focusWeek:null, popBtn:null
 };
@@ -273,6 +314,17 @@ function openPop(btn){
   const f = $('button', pop); if (f) f.focus({preventScroll:true});
 }
 function closePop(){ const p = $('#pop'); if (!p || p.hidden) return; p.hidden = true; p.dataset.for = ''; }
+function flipCard(id, card){
+  if (!card) return;
+  const to = !S.flipped.has(id);
+  const mid = () => {
+    if (to) S.flipped.add(id); else S.flipped.delete(id);
+    card.classList.toggle('flipped', to); $('.flip-btn', card).setAttribute('aria-pressed', String(to)); $('.card-back', card).setAttribute('aria-hidden', String(!to));
+    if (to && M()) $$('.bk-list .gauge>span', card).forEach((g, i) => { const fin = g.style.transform; anim(g, [{transform:'scaleX(0)'}, {transform:fin}], {duration:600, delay:120 + i * 50, easing:EASE_OUT, fill:'backwards'}); });
+  };
+  if (M() && GM.flip) GM.flip(card, mid); else mid();
+  const b = $('.flip-btn', card); if (b) b.focus({preventScroll:true});
+}
 function burst(el){
   if (!M() || !el) return;
   if (GM.burst && GM.burst(el, IC.heart)) return;
@@ -357,6 +409,7 @@ function fixWeek(wid){
   const w = WEEKS.find(x => x.id === wid); if (!w || !S.isOwner || !canEdit()) return;
   const f = d => d.toLocaleDateString('fr-FR', {day:'numeric', month:'long'});
   S.trip = Object.assign({}, S.trip, {week:wid, periode:'Du ' + f(w.s) + ' au ' + f(w.e) + ' ' + YEAR, updatedAt:Date.now()});
+  S.stampWeek = true;
   writeDoc('trip/main', S.trip).then(() => toast('Semaine retenue'));
   schedule();
 }
@@ -388,11 +441,14 @@ function fillDates(changed){
     <div class="legend-d"><span><span class="dc s2">${IC.yes}</span>Dispo</span><span><span class="dc s1">${IC.maybe}</span>Peut-être</span><span><span class="dc s0">${IC.no}</span>Pas dispo</span><span>Sous chaque semaine : nombre de « dispo » + « peut-être ». Un « peut-être » compte pour une demi-voix.</span></div>`
     : '<p class="muted">Personne n’est encore inscrit.</p>';
   const html = `<div class="pod-head"><div><h2 class="h2" style="font-size:34px">Quand partir à l’été ${YEAR} ?</h2><p class="muted" style="max-width:62ch;margin-top:6px">Indique tes disponibilités semaine par semaine, du samedi au samedi. Un clic sur ta case passe de « dispo » à « peut-être », puis « pas dispo », puis la vide.</p></div></div>
-    <section class="best-card">${card}</section>
+    <section class="best-card">${card}${t.week ? '<span class="stamp stamp-week" aria-label="Retenu">Retenu</span>' : ''}</section>
     ${canEdit() && !S.members[me] ? '<p class="banner">Choisis ton prénom pour répondre au sondage. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>' : ''}
     ${table}`;
   if (el._h !== html) {
+    const prevBars = $$('.wbar .col span', el).map(b => b.style.transform);
     el.innerHTML = html; el._h = html;
+    if (!changed && prevBars.length && GM.bars) GM.bars($$('.wbar .col span', el), prevBars);
+    if (S.stampWeek) { S.stampWeek = false; const sp = $('.best-card .stamp', el); if (sp && M() && GM.stamp) GM.stamp(sp, .2); }
     if (changed && M()) {
       anim($('.best-card', el), [{opacity:0, transform:'translateY(12px) scale(.98)'}, {opacity:1, transform:'none'}], {duration:520, delay:80, easing:EASE_OUT, fill:'backwards'});
       $$('tbody tr', el).forEach((tr, r) => $$('.dc', tr).forEach((c, i) => anim(c, [{opacity:0, transform:'scale(.5)'}, {opacity:1, transform:'none'}], {duration:380, delay:220 + r * 60 + i * 28, easing:EASE_BACK, fill:'backwards'})));
@@ -401,7 +457,11 @@ function fillDates(changed){
   }
   if (S.focusWeek) {
     const b = $(`[data-week="${CSS.escape(S.focusWeek)}"]`, el);
-    if (b) { b.focus({preventScroll:true}); anim(b, [{transform:'scale(.8)'}, {transform:'scale(1.12)'}, {transform:'none'}], {duration:380, easing:EASE_OUT}); }
+    if (b) {
+      b.focus({preventScroll:true});
+      const row = b.closest('tr'); const idx = row ? $$('.dc', row).indexOf(b) : 0;
+      if (!(row && M() && GM.wave && GM.wave(row, Math.max(0, idx)))) anim(b, [{transform:'scale(.8)'}, {transform:'scale(1.12)'}, {transform:'none'}], {duration:380, easing:EASE_OUT});
+    }
     S.focusWeek = null;
   }
 }
@@ -594,9 +654,7 @@ function renderHeader(){
     if (first && ids.length && S.introDone && M() && GM.avatars) GM.avatars(avEl);
   }
   $('#grp').textContent = ids.length ? plural(ids.length, 'inscrit') : '';
-  const me = $('#me-btn');
-  me.hidden = !canEdit();
-  me.textContent = S.members[S.myId] ? S.members[S.myId].name : 'Mon profil';
+  if (!$('#gear-pop').hidden) renderGear();
   $('#add-btn').hidden = !canEdit();
 }
 function renderBanner(){
@@ -666,7 +724,7 @@ function setView(v){
   renderTabs();
   if (M() && GM.swap && lastView) {
     S.swapping = true;
-    GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; });
+    GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; }, PREFS.wipe());
   } else renderView();
 }
 function readHash(){ const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
@@ -751,8 +809,9 @@ function cardHTML(l){
   else score = '<span class="score score-none" aria-label="Pas encore noté">–</span>';
   const facts = [fmtPrice(num(l.price)), l.beds ? plural(l.beds, 'couchage') : '', l.bedrooms ? plural(l.bedrooms, 'chambre') : ''].filter(Boolean).join(' · ');
   const eq = (l.equipments || []).slice(0, 4).join(' · ');
-  return `<article class="card${S.highlight === l.id ? ' hl' : ''}" data-k="${esc(l.id)}">
-    ${photoHTML(l, badgesHTML(l, s, true))}
+  const flipped = S.flipped.has(l.id);
+  return `<article class="card${S.highlight === l.id ? ' hl' : ''}${flipped ? ' flipped' : ''}" data-k="${esc(l.id)}">
+    ${photoHTML(l, badgesHTML(l, s, true))}${l.status === 'reserve' ? '<span class="stamp stamp-sm" aria-label="Retenu">Retenu</span>' : ''}
     <div class="cb">
       <div class="c-top"><div><h3 class="c-title">${esc(l.title || 'Sans titre')}</h3><p class="c-place">${esc(placeOf(l))}</p></div>${score}</div>
       <p class="facts">${esc(facts)}</p>
@@ -761,7 +820,19 @@ function cardHTML(l){
       <div class="foot"><span>Proposé par ${esc(nameOf(l.addedBy))}</span><span>${s.voted} / ${s.total} ont noté</span></div>
     </div>
     <button type="button" class="card-hit" data-open="${esc(l.id)}" aria-label="Ouvrir la fiche : ${esc(l.title || 'Sans titre')}"></button>
+    <button type="button" class="flip-btn" data-flip="${esc(l.id)}" aria-label="Retourner la carte : les notes de ${esc(l.title || 'ce logement')}" aria-pressed="${flipped}">${IC.flip}</button>
+    ${backHTML(l, s, see)}
   </article>`;
+}
+/* Dos de la carte : les notes par critère (cachées tant qu'on n'a pas noté, comme partout). */
+function backHTML(l, s, see){
+  const cs = crits();
+  let body;
+  if (see) {
+    body = s.overall == null ? '<p class="muted small">Personne n’a encore tout noté.</p>' :
+      `<ul class="bk-list">${cs.map(c => { const v = s.per[c.id]; return `<li><span>${esc(c.label)}</span><span class="gauge"><span style="transform:scaleX(${v == null ? 0 : (v / 10).toFixed(3)})"></span></span><b>${v == null ? '–' : fmtScore(v)}</b></li>`; }).join('')}</ul>`;
+  } else body = `<div class="bk-lock">${IC.lock}<p>Note ce logement pour voir les notes du groupe.</p></div>`;
+  return `<div class="card-back" aria-hidden="${!S.flipped.has(l.id)}"><div class="bk-top"><h3 class="bk-t">${esc(l.title || 'Sans titre')}</h3>${see && s.overall != null ? `<span class="bk-score">${fmtScore(s.overall)}<small>/10</small></span>` : ''}</div>${body}<div class="bk-foot"><button type="button" class="btn btn-sm" data-open="${esc(l.id)}">Ouvrir la fiche</button></div></div>`;
 }
 function emptyHTML(){
   if (!dataReady()) return '<div class="ghost" aria-hidden="true"></div><div class="ghost" aria-hidden="true"></div><p class="muted" style="grid-column:1/-1">Chargement du carnet…</p>';
@@ -897,10 +968,17 @@ function sortTh(key, label, cls){
   const on = S.cmp.key === key;
   return `<th scope="col"${cls ? ` class="${cls}"` : ''} aria-sort="${on ? (S.cmp.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sort-btn" data-sort="${esc(key)}">${esc(label)}${IC.chev}</button></th>`;
 }
-function cellHTML(v, see){
+/* Pour une ligne : le critère le mieux noté « s'allume », le plus bas « s'éteint » (s'ils diffèrent). */
+function rank(s, cs, cid, see){
+  if (!see) return '';
+  const vals = cs.map(c => s.per[c.id]).filter(v => typeof v === 'number'); if (vals.length < 3) return '';
+  const hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals); if (hi - lo < 1) return '';
+  const v = s.per[cid]; return v === hi ? 'best' : v === lo ? 'low' : '';
+}
+function cellHTML(v, see, rk){
   if (!see) return `<span class="lock" title="Note ce logement pour voir">${IC.lock}</span>`;
   if (v == null) return '<span class="muted">–</span>';
-  return `<div class="cell"><span class="num">${fmtScore(v)}</span><span class="gauge"><span style="transform:scaleX(${(v / 10).toFixed(3)})"></span></span></div>`;
+  return `<div class="cell${rk ? ' ' + rk : ''}">${rk === 'best' ? '<span class="sr-only">meilleure note de ce logement : </span>' : rk === 'low' ? '<span class="sr-only">note la plus basse de ce logement : </span>' : ''}<span class="num">${fmtScore(v)}</span><span class="gauge"><span style="transform:scaleX(${(v / 10).toFixed(3)})"></span></span></div>`;
 }
 function fillCompare(changed){
   fillFilterSelects();
@@ -925,7 +1003,7 @@ function fillCompare(changed){
       const s = st(l.id); const see = canSee(l.id);
       return `<tr data-k="${esc(l.id)}"><td class="c-name"><button type="button" class="row-btn" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span></button></td>
         <td class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</td>
-        ${cs.map(c => `<td>${cellHTML(s.per[c.id], see)}</td>`).join('')}
+        ${cs.map(c => `<td>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</td>`).join('')}
         <td>${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span>`) : `<span class="lock">${IC.lock}</span>`}</td>
         <td>${badgesHTML(l, s, true, true) || '<span class="muted">–</span>'}</td>
         <td class="num">${s.voted} / ${s.total}</td>
@@ -936,6 +1014,7 @@ function fillCompare(changed){
     const before = flipCapture(wrap); wrap.innerHTML = html; wrap._h = html; flipPlay(wrap, before, !changed);
     if (changed && M()) {
       if (!(GM.rows && GM.rows(wrap))) $$('tbody tr', wrap).forEach((tr, i) => anim(tr, [{opacity:0, transform:'translateY(10px)'}, {opacity:1, transform:'none'}], {duration:420, delay:80 + i * 50, easing:EASE_OUT, fill:'backwards'}));
+      if (GM.lights) GM.lights(wrap);
       $$('.gauge>span', wrap).forEach((g, i) => { const fin = g.style.transform; anim(g, [{transform:'scaleX(0)'}, {transform:fin}], {duration:800, delay:220 + Math.floor(i / cs.length) * 50, easing:EASE_OUT, fill:'backwards'}); });
     }
   }
@@ -1030,7 +1109,7 @@ function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', p.dataset.
 function drawerHTML(l){
   return `<button type="button" class="icon-btn dw-close" id="dw-close" aria-label="Fermer la fiche">${IC.x}</button>
   <div class="dw-scroll">
-    <div class="dw-photo">${photoHTML(l)}</div>
+    <div class="dw-photo">${photoHTML(l)}${l.status === 'reserve' ? '<span class="stamp" aria-label="Retenu">Retenu</span>' : ''}</div>
     <div class="dw-pad">
       <div id="dw-head">${dwHead(l)}</div>
       <div id="dw-facts">${dwFacts(l)}</div>
@@ -1075,7 +1154,7 @@ function dwVote(l){
   if (!S.members[S.myId]) return head + '<p class="muted" style="margin-top:8px">Choisis ton prénom pour voter. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>';
   const closed = cfg().closed; const v = votesOf(S.myId); const sc = (v.scores || {})[l.id] || {};
   const rows = crits().map(c => {
-    return `<div class="vrow" data-crow="${esc(c.id)}">${voteRowInner(c, sc[c.id], closed)}</div>`;
+    return `<div class="vrow" data-crow="${esc(c.id)}" style="--dc:${heat(sc[c.id]) || 'var(--accent)'}">${voteRowInner(c, sc[c.id], closed)}</div>`;
   }).join('');
   const heartOn = v.heart === l.id, vetoOn = v.veto === l.id;
   const hints = [];
@@ -1092,17 +1171,21 @@ function dwVote(l){
     ${vetoOn ? `<div class="frow why-in"><label for="dw-vwhy">Pourquoi ce veto ? <span class="opt">facultatif</span></label><input id="dw-vwhy" class="input" maxlength="160" value="${esc(v.vetoWhy || '')}" placeholder="Trop loin, pas assez de chambres…"${closed ? ' disabled' : ''}></div>` : ''}
     <p class="small muted" style="margin-top:10px">${esc(hints.join(' '))}</p>`;
 }
+/* Couleur d'une note : du bleu froid (1) à l'orange chaud (10). */
+const heat = n => typeof n === 'number' ? `hsl(${Math.round(208 - (n - 1) / 9 * 182)} 58% 46%)` : '';
 function voteRowInner(c, cur, closed){
   let dots = '';
   for (let i = 1; i <= 10; i++) dots += `<button type="button" class="dot${cur >= i ? ' f' : ''}" style="--i:${i - 1}" data-score="${i}" data-c="${esc(c.id)}" aria-pressed="${cur === i}" aria-label="${i} sur 10"${closed ? ' disabled' : ''}></button>`;
   return `<span class="vl" id="vl-${esc(c.id)}">${esc(c.label)}</span><div class="dots" role="group" aria-labelledby="vl-${esc(c.id)}">${dots}</div><span class="vv">${cur == null ? '–' : cur}</span>`;
 }
-function paintVoteRow(cid){
+function paintVoteRow(cid, prev){
   const row = $(`[data-crow="${CSS.escape(cid)}"]`); if (!row) return;
   const cur = ((votesOf(S.myId).scores || {})[S.openId] || {})[cid];
+  row.style.setProperty('--dc', heat(cur) || 'var(--accent)');
   $$('.dot', row).forEach(d => { const n = +d.dataset.score; d.classList.toggle('f', cur >= n); d.setAttribute('aria-pressed', String(cur === n)); });
   const vv = $('.vv', row); vv.textContent = cur == null ? '–' : cur;
-  anim(vv, [{transform:'scale(1.25)'}, {transform:'none'}], {duration:240, easing:EASE_OUT});
+  if (M() && GM.dots && GM.dots(row, prev, cur)) { if (typeof cur === 'number') GM.roll(vv, prev, cur); else anim(vv, [{transform:'scale(1.25)'}, {transform:'none'}], {duration:240, easing:EASE_OUT}); }
+  else anim(vv, [{transform:'scale(1.25)'}, {transform:'none'}], {duration:240, easing:EASE_OUT});
 }
 function dwOthers(l){
   const s = st(l.id);
@@ -1133,6 +1216,11 @@ function updateDrawer(){
   const inside = el => el && el.contains(document.activeElement);
   const head = $('#dw-head'); if (head && !inside(head)) head.innerHTML = dwHead(l);
   const facts = $('#dw-facts'); if (facts) facts.innerHTML = dwFacts(l);
+  const dph = $('.dw-photo'); if (dph) {
+    const has = $('.stamp', dph);
+    if (l.status === 'reserve' && !has) { dph.insertAdjacentHTML('beforeend', '<span class="stamp" aria-label="Retenu">Retenu</span>'); if (S.stampAnim === l.id) { S.stampAnim = null; if (M() && GM.stamp) GM.stamp($('.stamp', dph), .1); } }
+    else if (l.status !== 'reserve' && has) has.remove();
+  }
   const vote = $('#dw-vote'); if (vote && !inside(vote) && !S.myVoteDirty) { const save = $('#dw-save') ? $('#dw-save').textContent : ''; vote.innerHTML = dwVote(l); setSave(save); }
   const others = $('#dw-others'); if (others) {
     const wasLocked = !S.unlockedSeen.has(l.id);
@@ -1148,9 +1236,9 @@ function celebrateUnlock(){
 }
 function setScore(cid, n){
   if (!canVote() || !S.openId) return;
-  const lid = S.openId; const before = hasCompleted(S.myId, lid);
+  const lid = S.openId; const before = hasCompleted(S.myId, lid); const prevN = ((votesOf(S.myId).scores || {})[lid] || {})[cid];
   editMyVote(v => { const cur = Object.assign({}, v.scores[lid] || {}); if (cur[cid] === n) delete cur[cid]; else cur[cid] = n; v.scores[lid] = cur; });
-  paintVoteRow(cid); saveVote(false);
+  paintVoteRow(cid, prevN); saveVote(false);
   if (before !== hasCompleted(S.myId, lid)) { S.st = computeStats(); updateOthersOnly(); }
   schedule();
 }
@@ -1174,7 +1262,7 @@ function toggleMark(lid, kind){
   if (btn) {
     btn.focus();
     if (on && kind === 'heart') { anim($('svg', btn), [{transform:'scale(1)'}, {transform:'scale(1.6)'}, {transform:'scale(1)'}], {duration:420, easing:EASE_OUT}); burst(btn); }
-    if (on && kind === 'veto') anim(btn, [{transform:'translateX(0)'}, {transform:'translateX(-6px)'}, {transform:'translateX(6px)'}, {transform:'translateX(-3px)'}, {transform:'none'}], {duration:340, easing:'ease-out'});
+    if (on && kind === 'veto') { anim(btn, [{transform:'translateX(0)'}, {transform:'translateX(-6px)'}, {transform:'translateX(6px)'}, {transform:'translateX(-3px)'}, {transform:'none'}], {duration:340, easing:'ease-out'}); anim($('svg', btn), [{transform:'rotate(0)'}, {transform:'rotate(-24deg)'}, {transform:'rotate(20deg)'}, {transform:'rotate(-12deg)'}, {transform:'none'}], {duration:420, easing:'ease-out'}); }
   }
   S.st = computeStats(); const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[lid]);
   schedule();
@@ -1646,11 +1734,17 @@ function toast(msg){
 /* ---------- Évènements ---------- */
 function bindStatic(){
   window.addEventListener('resize', () => { placeInd(false); closePop(); });
-  window.addEventListener('scroll', closePop, {passive:true});
+  window.addEventListener('scroll', () => { closePop(); closeGear(); }, {passive:true});
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => placeInd(false));
   if (GM.bindTilt) GM.bindTilt($('#panel'));
-  $('#motion-btn').addEventListener('click', () => { motion = !motion; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); toast(motion ? 'Animations activées' : 'Animations coupées'); });
-  $('#me-btn').addEventListener('click', () => openSettings(false));
+  $('#gear-btn').addEventListener('click', openGear);
+  const gp = $('#gear-pop');
+  gp.addEventListener('click', e => {
+    if (e.target.closest('[data-gear-close]')) { closeGear(true); return; }
+    const sw = e.target.closest('[data-pref]'); if (!sw) return;
+    setPref(sw.dataset.pref); renderGear(); const n = $(`[data-pref="${sw.dataset.pref}"]`, gp); if (n) n.focus({preventScroll:true});
+  });
+  gp.addEventListener('change', e => { if (e.target.id === 'gp-theme') setPref('theme', e.target.value); else if (e.target.id === 'gp-wipe') setPref('wipe', e.target.value); });
   $('#rv-skip').addEventListener('click', () => { if (revealSkip) revealSkip(); });
   $('#rv-done').addEventListener('click', closeReveal);
 
@@ -1658,10 +1752,12 @@ function bindStatic(){
 
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
-    const t = e.target.closest('[data-view],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
+    if (d.flip) return flipCard(d.flip, t.closest('.card'));
     if (d.pop) return openPop(t);
     if (d.week) return cycleWeek(d.week);
     if (d.fixweek) return fixWeek(d.fixweek);
@@ -1684,6 +1780,7 @@ function bindStatic(){
       case 'add': return openListingModal();
       case 'edit': return openListingModal(d.id);
       case 'profile': return openSettings(!S.members[S.myId]);
+      case 'my-settings': closeGear(); return openSettings(false);
       case 'reset-filters': S.f.dept = ''; S.f.status = ''; return renderView();
       case 'map-reset': return selectDep(null);
       case 'del': S.dwConfirm = true; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); { const b = $('[data-act="del-cancel"]'); if (b) b.focus(); } return;
@@ -1709,6 +1806,7 @@ function bindStatic(){
       const v = VIEWS[(i + VIEWS.length) % VIEWS.length]; setView(v); $('#tab-' + v).focus(); e.preventDefault(); return;
     }
     if (e.key === 'Escape') {
+      if (!$('#gear-pop').hidden) { closeGear(true); return; }
       if (!$('#pop').hidden) { closePop(); if (S.popBtn && document.contains(S.popBtn)) S.popBtn.focus(); return; }
       if (!$('#reveal').hidden) { if (revealing && revealSkip) revealSkip(); else closeReveal(); return; }
       if (!$('#modal').hidden) { closeModal(); return; }
@@ -1723,7 +1821,7 @@ function bindStatic(){
     if (t.id === 'f-dept') { S.f.dept = t.value; renderView(); }
     else if (t.id === 'f-status') { S.f.status = t.value; renderView(); }
     else if (t.id === 'f-sort') { S.f.sort = t.value; renderView(); }
-    else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
+    else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l && t.value === 'reserve' && l.status !== 'reserve') S.stampAnim = l.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
     else if (t.id === 'li-shots') { addShots(t.files); t.value = ''; }
     else if (t.id === 'li-photo-file') { const f = t.files && t.files[0]; if (f) { if (ML.photo && ML.photo.url) URL.revokeObjectURL(ML.photo.url); ML.photo = {type:'file', file:f, url:URL.createObjectURL(f)}; renderShots(); renderPhotoZone(); } }
     else if (t.dataset && t.dataset.shotph !== undefined) { ML.photo = {type:'shot', idx:+t.dataset.shotph}; renderPhotoZone(); }

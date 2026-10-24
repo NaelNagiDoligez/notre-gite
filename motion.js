@@ -55,11 +55,8 @@ GM.intro = function(done){
     introSplit = SplitText.create(title, {type:'words,chars', charsClass:'ch', aria:'auto'});
   }
   g.set(rise, {opacity:1});
-  const tl = introTl = g.timeline({defaults:{ease:OUT}, onComplete(){ if (introSplit) { introSplit.revert(); introSplit = null; } finish(); GM.spin(); }});
+  const tl = introTl = g.timeline({defaults:{ease:OUT}, onComplete(){ if (introSplit) { introSplit.revert(); introSplit = null; } finish(); }});
   introFinish = finish;
-  tl.from('.hdr .eyebrow', {y:14, opacity:0, duration:.7}, 0);
-  const sun = $$('.sun circle, .sun .rays path');
-  if (sun.length && window.DrawSVGPlugin) tl.from(sun, {drawSVG:0, duration:.8, stagger:.045, ease:'power2.out'}, .3);
   if (introSplit) tl.from(introSplit.chars, {opacity:0, y:48, rotation:() => rnd(-9, 9), duration:1, stagger:.03}, .1);
   const sq = $('.hdr .squig path');
   if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.2}, .65);
@@ -75,14 +72,6 @@ function abortIntro(){
   g.set($$('.hdr *, #trip .tf, .bar *'), {clearProps:'opacity,transform,strokeDashoffset'});
   if (introFinish) introFinish();
 }
-/* Le soleil du titre tourne très lentement : seule animation continue, toute petite. */
-let spinTw = null;
-GM.spin = function(){
-  const r = $('.sun .rays');
-  if (spinTw || !r || !on()) return;
-  spinTw = g.to(r, {rotation:360, svgOrigin:'12 12', duration:70, ease:'none', repeat:-1});
-};
-
 /* Les pastilles des inscrits arrivent une à une. */
 GM.avatars = function(root){
   if (!on() || !root) return;
@@ -102,13 +91,111 @@ GM.login = function(L){
 };
 
 /* ---------- Changement d'onglet : le contenu sort vite, le nouveau glisse depuis le côté ---------- */
-GM.swap = function(panel, dir, apply){
+GM.swap = function(panel, dir, apply, mode){
   if (!on() || !panel) { apply(); return; }
   g.killTweensOf(panel);
+  if (mode === 'paper') { paperWipe(panel, dir, apply); return; }
   g.to(panel, {opacity:0, x:-dir * 14, duration:.13, ease:'power1.out', onComplete(){
     apply();
     g.fromTo(panel, {opacity:0, x:dir * 34, y:dir ? 0 : 10}, {opacity:1, x:0, y:0, duration:.55, ease:OUT, clearProps:'transform,opacity'});
   }});
+};
+/* Variante « papier crème » : une feuille aux bords déchirés balaie le panneau, le contenu change dessous. */
+function tornEdge(){
+  const pts = []; for (let i = 0; i <= 22; i++) pts.push(i / 22);
+  return pts;
+}
+function paperWipe(panel, dir, apply){
+  const r = panel.getBoundingClientRect();
+  const W = r.width, H = Math.max(r.height, 360), E = 56;
+  const clip = document.createElement('div'); clip.className = 'paper-clip'; clip.setAttribute('aria-hidden', 'true');
+  clip.style.cssText = `left:${r.left + scrollX}px;top:${r.top + scrollY}px;width:${W}px;height:${H}px`;
+  const sheet = document.createElement('div'); sheet.className = 'paper-sheet'; sheet.style.width = (W + 2 * E) + 'px';
+  const inner = document.createElement('div'); inner.className = 'paper-in';
+  const left = tornEdge().map(t => `${(rnd(3, 16)).toFixed(1)}px ${(t * 100).toFixed(1)}%`);
+  const right = tornEdge().reverse().map(t => `calc(100% - ${(rnd(3, 16)).toFixed(1)}px) ${(t * 100).toFixed(1)}%`);
+  inner.style.clipPath = `polygon(${left.concat(right).join(',')})`;
+  sheet.append(inner); clip.append(sheet); document.body.append(clip);
+  const WD = W + 2 * E;
+  const x0 = dir >= 0 ? -WD : W, x1 = -E, x2 = dir >= 0 ? W : -WD;
+  g.set(sheet, {x:x0});
+  const tl = g.timeline({onComplete(){ clip.remove(); }});
+  tl.to(sheet, {x:x1, duration:.3, ease:'gite-io'})
+    .add(() => { apply(); })
+    .fromTo(panel, {opacity:.0, y:14}, {opacity:1, y:0, duration:.4, ease:OUT, clearProps:'transform,opacity'}, '>+0.02')
+    .to(sheet, {x:x2, duration:.36, ease:'power2.out'}, '<');
+}
+
+/* ---------- Tampon « Retenu » : il claque sur sa cible, l'encre s'écrase ---------- */
+GM.stamp = function(el, delay){
+  if (!on() || !el) return false;
+  g.killTweensOf(el);
+  const host = el.parentElement;
+  const tl = g.timeline({delay:delay || 0});
+  tl.fromTo(el, {opacity:0, scale:2.7, rotation:-26, y:-34}, {opacity:1, scale:1, rotation:-8, y:0, duration:.26, ease:'power4.in', clearProps:'transform,opacity'});
+  if (host) {
+    const ring = document.createElement('span'); ring.className = 'stamp-ring'; ring.setAttribute('aria-hidden', 'true'); host.append(ring);
+    tl.add(() => { const hr = host.getBoundingClientRect(), er = el.getBoundingClientRect(); ring.style.left = (er.left - hr.left + er.width / 2) + 'px'; ring.style.top = (er.top - hr.top + er.height / 2) + 'px'; g.fromTo(ring, {scale:.55, opacity:.55}, {scale:1.5, opacity:0, duration:.55, ease:OUT, onComplete:() => ring.remove()}); })
+      .to(host, {y:3, scaleY:.992, duration:.07, ease:'power2.out'}, '<')
+      .to(host, {y:0, scaleY:1, duration:.55, ease:'elastic.out(1,.35)', clearProps:'transform'}, '>');
+  }
+  return true;
+};
+
+/* ---------- Carte qui se retourne ---------- */
+GM.flip = function(card, mid){
+  if (!on() || !card) { mid(); return; }
+  card._enter = true; g.killTweensOf(card);
+  g.set(card, {transformPerspective:900});
+  g.timeline({onComplete(){ card._enter = false; g.set(card, {clearProps:'transform'}); }})
+    .to(card, {rotationY:90, y:-6, duration:.2, ease:'power2.in'})
+    .add(mid)
+    .fromTo(card, {rotationY:-90}, {rotationY:0, y:0, duration:.38, ease:'power3.out'});
+};
+
+/* ---------- Gestes courants ---------- */
+/* Notes : les pastilles se remplissent en vague (vers le haut en montant, vers le bas en descendant). */
+GM.dots = function(row, from, to){
+  if (!on() || !row) return false;
+  const dots = $$('.dot', row); const a = from || 0, b = to || 0; if (a === b) return false;
+  const grow = b > a; const set = dots.slice(Math.min(a, b), Math.max(a, b));
+  g.fromTo(set, {y:grow ? 7 : -5, scale:grow ? .55 : 1.14}, {y:0, scale:1, duration:.44, stagger:{each:.03, from:grow ? 'start' : 'end'}, ease:'back.out(2.8)', overwrite:true, clearProps:'transform'});
+  return true;
+};
+/* La valeur « roule » d'un nombre à l'autre. */
+GM.roll = function(el, from, to){
+  if (!on() || !el || from === to || typeof to !== 'number') return false;
+  const o = {v: typeof from === 'number' ? from : Math.max(0, to - 2)};
+  g.killTweensOf(o);
+  g.to(o, {v:to, duration:.4, ease:'power2.out', onUpdate(){ el.textContent = Math.round(o.v); }, onComplete(){ el.textContent = to; }});
+  g.fromTo(el, {y:to > (typeof from === 'number' ? from : 0) ? 8 : -8, scale:1.3}, {y:0, scale:1, duration:.5, ease:'back.out(2.4)', overwrite:'auto', clearProps:'transform'});
+  return true;
+};
+/* La photo de la fiche défile plus lentement que le texte. */
+GM.parallax = function(dw){
+  const sc = $('.dw-scroll', dw), ph = $('.dw-photo', dw); if (!sc || !ph) return;
+  let raf = 0;
+  const upd = () => { raf = 0; ph.style.setProperty('--py', on() ? Math.min(sc.scrollTop * .32, 24).toFixed(1) + 'px' : '0px'); };
+  sc.addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(upd); }, {passive:true});
+};
+/* Dates : la case touchée envoie une onde le long de la ligne, la colonne du total se rééquilibre. */
+GM.wave = function(row, idx){
+  if (!on() || !row) return false;
+  const cells = $$('.dc', row); if (!cells.length) return false;
+  g.fromTo(cells, {scale:1}, {scale:1.16, duration:.16, ease:'power2.out', yoyo:true, repeat:1, stagger:{each:.045, from:idx}, overwrite:'auto', clearProps:'transform'});
+  return true;
+};
+GM.bars = function(bars, prevs){
+  if (!on() || !bars.length) return false;
+  bars.forEach((b, i) => { const p = prevs[i]; const fin = b.style.transform; if (p && p !== fin) g.fromTo(b, {transform:p}, {transform:fin, duration:.7, ease:'elastic.out(1,.55)', clearProps:'transform'}); });
+  return true;
+};
+/* Comparateur : la meilleure note de chaque ligne s'allume, la plus basse s'éteint. */
+GM.lights = function(wrap){
+  if (!on() || !wrap) return false;
+  const best = $$('.cell.best', wrap), low = $$('.cell.low', wrap);
+  if (best.length) g.fromTo(best, {scale:.86, filter:'brightness(.7)'}, {scale:1, filter:'brightness(1)', duration:.7, delay:.9, stagger:.05, ease:'back.out(2.2)', clearProps:'transform,filter'});
+  return true;
 };
 
 /* ---------- Galerie : les cartes se posent comme des feuilles de papier ---------- */
@@ -229,10 +316,11 @@ GM.pins = function(root){
 /* ---------- Fiche (tiroir) ---------- */
 GM.drawer = function(dw){
   if (!on() || !dw) return false;
-  const photo = $('.dw-photo', dw), img = $('.dw-photo .ph > *', dw), pad = $$('.dw-pad > *', dw), title = $('.dw-title', dw);
+  GM.parallax(dw);
+  const photo = $('.dw-photo', dw), img = $('.dw-photo .ph > img', dw), pad = $$('.dw-pad > *', dw), title = $('.dw-title', dw);
   const tl = g.timeline({defaults:{ease:OUT}});
   if (photo) tl.fromTo(photo, {clipPath:'inset(0 0 100% 0)'}, {clipPath:'inset(0 0 0% 0)', duration:.7, clearProps:'clipPath'}, .05);
-  if (img) tl.fromTo(img, {scale:1.25}, {scale:1, duration:1.3, clearProps:'transform'}, .05);
+  if (img) tl.fromTo(img, {scale:1.5}, {scale:1.22, duration:1.3, clearProps:'transform'}, .05);
   tl.from(pad, {opacity:0, y:22, duration:.55, stagger:.06, clearProps:CLEAR}, .18);
   if (title && window.SplitText) {
     const sp = SplitText.create(title, {type:'words', aria:'auto'});
@@ -340,7 +428,6 @@ GM.reveal = function(o){
 GM.disable = function(){
   abortIntro();
   GM.killScroll(); revealHidden();
-  if (spinTw) { spinTw.kill(); spinTw = null; g.set('.sun .rays', {clearProps:'all'}); }
   g.globalTimeline.getChildren(false, true, true).forEach(t => {
     try { if (t.repeat && t.repeat() === -1) t.kill(); else if (t.progress) t.progress(1); } catch (e) {}
   });
