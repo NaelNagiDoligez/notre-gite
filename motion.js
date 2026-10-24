@@ -328,11 +328,11 @@ function modalClean(dw){
   $$('.dw-ghost', dw).forEach(n => n.remove());
   const body = $('.dw-scroll', dw); if (body) { body.style.width = ''; body.style.flex = ''; body.style.opacity = ''; }
   const close = $('.dw-close', dw); if (close) close.style.opacity = '';
-  if (dw._src) { dw._src.style.opacity = ''; dw._src = null; }
+  if (dw._src) { dw._src.style.opacity = ''; dw._src.style.visibility = ''; dw._src = null; }
 }
 function ghost(card){
   const c = card.cloneNode(true);
-  c.classList.remove('flipping', 'hl'); c.removeAttribute('data-k');
+  c.classList.remove('flipping', 'hl', 'card-away'); c.removeAttribute('data-k');
   c.setAttribute('aria-hidden', 'true'); c.inert = true;
   c.classList.add('dw-ghost');
   c.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;margin:0;transform:none;z-index:6;pointer-events:none;border:0;border-radius:inherit;box-shadow:none';

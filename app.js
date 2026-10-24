@@ -227,13 +227,49 @@ function photoHTML(l, extra){
   if (ps.length) return `<div class="ph ${tint}"><img src="${esc(photoUrl(ps[0]))}" alt="" loading="lazy" data-fb>${extra || ''}${extra !== undefined && ps.length > 1 ? `<span class="ph-count" aria-label="${ps.length} photos">${ps.length} photos</span>` : ''}</div>`;
   return `<div class="ph ${tint}">${IC.house}${extra || ''}</div>`;
 }
-function pinPos(l){
-  const lat = num(l.lat), lng = num(l.lng);
-  if (lat != null && lng != null && lat > 41 && lat < 51.5 && lng > -5.5 && lng < 10) return project(lat, lng);
-  const d = DEP[l.dept]; if (!d) return null;
-  const a = hashN(l.id, 360) * Math.PI / 180, r = 4 + hashN(l.id + 'r', 9);
-  return [d.cx + Math.cos(a) * r, d.cy + Math.sin(a) * r];
+const DEPBB = {};
+function depBox(c){
+  if (DEPBB[c]) return DEPBB[c];
+  const d = DEP[c]; if (!d) return null;
+  let x = 0, y = 0, sx = 0, sy = 0, cmd = 'M', minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9; const nums = [];
+  const tok = d.d.match(/[MmLlHhVvZz]|-?\d*\.?\d+/g) || [];
+  const put = () => { minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y); };
+  for (let i = 0; i < tok.length;) {
+    if (/[A-Za-z]/.test(tok[i])) { cmd = tok[i++]; if (cmd === 'z' || cmd === 'Z') { x = sx; y = sy; } continue; }
+    const rel = cmd === cmd.toLowerCase();
+    if (cmd === 'H' || cmd === 'h') { x = rel ? x + +tok[i++] : +tok[i++]; }
+    else if (cmd === 'V' || cmd === 'v') { y = rel ? y + +tok[i++] : +tok[i++]; }
+    else { const a = +tok[i++], b = +tok[i++]; x = rel ? x + a : a; y = rel ? y + b : b; if (cmd === 'M' || cmd === 'm') { sx = x; sy = y; cmd = rel ? 'l' : 'L'; } }
+    put();
+  }
+  return (DEPBB[c] = {w:maxx - minx, h:maxy - miny});
 }
+/* Points répartis dans le département : un logement seul au centre, plusieurs en couronne (jamais l'un sur l'autre). */
+function pinMap(){
+  const by = {};
+  listingsArr().forEach(l => { const k = DEP[l.dept] ? l.dept : '?'; (by[k] = by[k] || []).push(l); });
+  const out = {};
+  Object.keys(by).forEach(k => {
+    const arr = by[k].slice().sort((a, b) => a.id < b.id ? -1 : 1);
+    const d = DEP[k], bb = d && depBox(k), R = bb ? Math.max(5, Math.min(bb.w, bb.h) * .3) : 0, n = arr.length;
+    const geo = [];
+    arr.forEach((l, i) => {
+      const lat = num(l.lat), lng = num(l.lng);
+      if (lat != null && lng != null && lat > 41 && lat < 51.5 && lng > -5.5 && lng < 10) {
+        let p = project(lat, lng), j = 0;
+        while (geo.some(q => Math.hypot(q[0] - p[0], q[1] - p[1]) < 6) && j < 12) { const a = j++ * 2.4; p = [p[0] + Math.cos(a) * 7, p[1] + Math.sin(a) * 7]; }
+        geo.push(p); out[l.id] = p; return;
+      }
+      if (!d) return;
+      if (n === 1) { out[l.id] = [d.cx, d.cy]; return; }
+      const base = hashN(k, 360) * Math.PI / 180;
+      if (n <= 7) { const a = base + i * 2 * Math.PI / n; out[l.id] = [d.cx + Math.cos(a) * R * .65, d.cy + Math.sin(a) * R * .65]; }
+      else { const a = base + i * 2.399963, r = R * Math.sqrt((i + .5) / n); out[l.id] = [d.cx + Math.cos(a) * r, d.cy + Math.sin(a) * r]; }
+    });
+  });
+  return out;
+}
+function pinPos(l, map){ return (map || pinMap())[l.id] || null; }
 
 /* ---------- Écriture ---------- */
 const writeQ = {};
@@ -832,7 +868,7 @@ function cardHTML(l){
   const facts = [fmtPrice(num(l.price)), l.beds ? plural(l.beds, 'couchage') : '', l.bedrooms ? plural(l.bedrooms, 'chambre') : ''].filter(Boolean).join(' · ');
   const eq = (l.equipments || []).slice(0, 4).join(' · ');
   const flipped = S.flipped.has(l.id);
-  return `<article class="card${S.highlight === l.id ? ' hl' : ''}${flipped ? ' flipped' : ''}" data-k="${esc(l.id)}">
+  return `<article class="card${S.awayId === l.id ? ' card-away' : ''}${S.highlight === l.id ? ' hl' : ''}${flipped ? ' flipped' : ''}" data-k="${esc(l.id)}">
     ${photoHTML(l, badgesHTML(l, s, true))}${l.status === 'reserve' ? '<span class="stamp stamp-sm" aria-label="Retenu">Retenu</span>' : ''}
     <div class="cb">
       <div class="c-top"><div><h3 class="c-title">${esc(l.title || 'Sans titre')}</h3><p class="c-place">${esc(placeOf(l))}</p></div>${score}</div>
@@ -915,9 +951,10 @@ function mapSVG(mini){
     return `<path d="${d.d}" class="dep${n ? ' has' : ''}${!mini && S.mapSel === d.c ? ' sel' : ''}" data-dep="${d.c}"><title>${esc(d.n)} (${d.c})${n ? ' · ' + plural(n, 'logement') : ''}</title></path>`;
   }).join('');
   const r = mini ? 16 : 8;
+  const pm = pinMap();
   const pins = listingsArr().map(l => {
-    const p = pinPos(l); if (!p) return '';
-    return `<g class="pin${S.openId === l.id ? ' on' : ''}" data-open="${esc(l.id)}" transform="translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})" tabindex="${mini ? -1 : 0}" role="button" aria-label="Ouvrir la fiche : ${esc(l.title)}"><g class="pin-s"><circle r="${r * 1.4}" class="pin-halo"/><circle r="${r}" class="pin-dot"/></g><title>${esc(l.title)}</title></g>`;
+    const p = pinPos(l, pm); if (!p) return '';
+    return `<g class="pin${S.openId === l.id ? ' on' : ''}" ${mini ? 'data-open' : 'data-pinlid'}="${esc(l.id)}" transform="translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})" tabindex="${mini ? -1 : 0}" role="button" aria-label="Ouvrir la fiche : ${esc(l.title)}"><g class="pin-s"><circle r="${r * 1.4}" class="pin-halo"/><circle r="${r}" class="pin-dot"/></g></g>`;
   }).join('');
   return `<svg viewBox="0 0 ${FR.w} ${FR.h}" class="fr ${mini ? 'fr-mini' : 'fr-big'}" role="group" aria-label="Carte de France des logements proposés"><g class="zoom"${mini ? '' : ' id="zoomg"'}>${paths}<g class="pins">${pins}</g></g></svg>`;
 }
@@ -960,7 +997,30 @@ function fillMap(changed){
   }
   fillMapSide();
 }
+/* Carte : un clic sur un point zoome d'abord sur son département ; une fois dedans, il ouvre la fiche. */
+function pinGo(id){
+  const l = S.listings[id]; if (!l) return;
+  const big = !!$('#big-map .pin[data-pinlid="' + CSS.escape(id) + '"]');
+  if (big && DEP[l.dept] && S.mapSel !== l.dept) { selectDep(l.dept); return; }
+  S.clickSrc = null; openListing(id);
+}
+let tipPin = null;
+function hidePinTip(){ const t = $('#map-tip'); tipPin = null; if (t) t.classList.remove('show'); }
+function showPinTip(pin){
+  const l = S.listings[pin.dataset.pinlid]; const wrap = pin.closest('.map-wrap'); if (!l || !wrap) return;
+  let t = $('#map-tip'); if (!t) { t = document.createElement('div'); t.id = 'map-tip'; t.className = 'map-tip'; t.setAttribute('aria-hidden', 'true'); wrap.append(t); }
+  const zoomed = S.mapSel === l.dept; const sc = st(l.id);
+  t.innerHTML = `<span class="mt-ph">${photoHTML(l)}</span><span class="mt-b"><strong>${esc(l.title)}</strong><span>${esc([l.commune, fmtPrice(num(l.price))].filter(Boolean).join(' · '))}</span><em>${zoomed ? 'Ouvrir la fiche →' : 'Zoomer sur le département →'}</em></span>`;
+  tipPin = pin;
+  const wr = wrap.getBoundingClientRect(), dr = $('.pin-dot', pin).getBoundingClientRect();
+  const tw = t.offsetWidth, th = t.offsetHeight;
+  let x = dr.left + dr.width / 2 - wr.left; x = Math.max(tw / 2 + 8, Math.min(wr.width - tw / 2 - 8, x));
+  let y = dr.top - wr.top - 12, below = y - th < 8; if (below) y = dr.bottom - wr.top + 12;
+  t.style.left = x + 'px'; t.style.top = y + 'px'; t.style.transform = below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)';
+  t.classList.add('show');
+}
 function selectDep(c){
+  hidePinTip();
   S.mapSel = c;
   $$('#big-map .dep').forEach(p => p.classList.toggle('sel', p.dataset.dep === c));
   applyZoom(true); fillMapSide();
@@ -1098,6 +1158,7 @@ function fillPodium(changed){
 }
 
 /* ---------- Fiche ---------- */
+const isCardEl = el => !!(el && el.matches && el.matches('.card'));
 function srcCardOf(el){ return el && el.closest ? el.closest('.card') : null; }
 function openListing(id){
   if (!S.listings[id]) return;
@@ -1112,6 +1173,7 @@ function openListing(id){
     const src = srcCardOf(S.clickSrc || S.drawerTrigger);
     w.hidden = false; void w.offsetWidth; w.classList.add('open'); $('#app').inert = true;
     grown = M() && GM.modalOpen && GM.modalOpen(dw, $('.dw-scrim', w), src);
+    if (grown && isCardEl(src)) { S.awayId = id; src.classList.add('card-away'); }
   } else $('.dw-scroll', dw).scrollTop = 0;
   S.clickSrc = null;
   $('#dw-close').focus({preventScroll:true});
@@ -1128,12 +1190,12 @@ function closeDrawer(){
   S.openId = null; $('#app').inert = false;
   let t = S.drawerTrigger;
   if (!t || !document.contains(t)) t = $(`#app [data-open="${CSS.escape(lastId)}"]`);
-  const fin = () => { if (!S.openId) { w.hidden = true; dw.innerHTML = ''; } };
+  const fin = () => { if (!S.openId) { w.hidden = true; dw.innerHTML = ''; S.awayId = null; $$('.card-away').forEach(c => c.classList.remove('card-away')); } };
   if (M() && GM.modalClose) GM.modalClose(dw, $('.dw-scrim', w), srcCardOf($(`#panel .card[data-k="${CSS.escape(lastId)}"]`)), fin); else fin();
-  if (t) t.focus({preventScroll:true});
+  if (t && S.kbd) t.focus({preventScroll:true}); else if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   markPins();
 }
-function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', p.dataset.open === S.openId)); }
+function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', (p.dataset.open || p.dataset.pinlid) === S.openId)); }
 function dwPhotoHTML(l){
   const ps = photosOf(l); if (ps.length < 2) return photoHTML(l);
   const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
@@ -1821,7 +1883,7 @@ function bindStatic(){
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
     if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
-    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-pinlid],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
@@ -1836,6 +1898,7 @@ function bindStatic(){
     if (d.score) return setScore(d.c, +d.score);
     if (d.heart) return toggleMark(d.heart, 'heart');
     if (d.veto) return toggleMark(d.veto, 'veto');
+    if (d.pinlid) { hidePinTip(); return pinGo(d.pinlid); }
     if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; return openListing(d.open); }
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
@@ -1881,7 +1944,7 @@ function bindStatic(){
       if (!$('#modal').hidden) { closeModal(); return; }
       if (S.openId) { closeDrawer(); return; }
     }
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pin')) { e.preventDefault(); openListing(e.target.dataset.open); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pin')) { e.preventDefault(); pinGo(e.target.dataset.open || e.target.dataset.pinlid); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'dw-ctext') { e.preventDefault(); $('#dw-cform').requestSubmit(); }
   });
   /* Glisser-déposer des photos du formulaire (souris et doigt) */
@@ -1923,6 +1986,12 @@ function bindStatic(){
     setTimeout(() => { if ($('#li-photo-zone')) renderPhotoZone(); }, M() ? 270 : 0);
   };
   document.addEventListener('pointerup', endDrag); document.addEventListener('pointercancel', endDrag);
+  document.addEventListener('pointerover', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) showPinTip(pin); });
+  document.addEventListener('pointerout', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && !(e.relatedTarget && pin.contains(e.relatedTarget))) hidePinTip(); });
+  document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) showPinTip(pin); });
+  document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
+  document.addEventListener('keydown', () => { S.kbd = true; }, true);
+  document.addEventListener('pointerdown', () => { S.kbd = false; }, true);
   document.addEventListener('scroll', e => { const tr = e.target; if (!tr || tr.id !== 'dw-track') return; const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)); $$('.dw-dots span').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
   document.addEventListener('change', e => {
     const t = e.target;
