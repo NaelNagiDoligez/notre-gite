@@ -91,40 +91,23 @@ GM.login = function(L){
 };
 
 /* ---------- Changement d'onglet : le contenu sort vite, le nouveau glisse depuis le côté ---------- */
-GM.swap = function(panel, dir, apply, mode){
+GM.swap = function(panel, dir, apply){
   if (!on() || !panel) { apply(); return; }
   g.killTweensOf(panel);
-  if (mode === 'paper') { paperWipe(panel, dir, apply); return; }
+  /* La hauteur du panneau est gardée le temps du changement : la page ne saute plus vers le haut,
+     puis elle se resserre doucement si le nouvel onglet est plus court. */
+  const h0 = panel.offsetHeight; panel.style.minHeight = h0 + 'px';
   g.to(panel, {opacity:0, x:-dir * 14, duration:.13, ease:'power1.out', onComplete(){
     apply();
+    /* hauteur naturelle mesurée sans lâcher le verrou (sinon le navigateur recale le scroll d'un coup) */
+    const kids = Array.from(panel.children), pr = panel.getBoundingClientRect(), cs = getComputedStyle(panel), last = kids[kids.length - 1];
+    const h1 = last ? Math.ceil(last.getBoundingClientRect().bottom - pr.top + (parseFloat(getComputedStyle(last).marginBottom) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) : 0;
+    panel.style.minHeight = h0 + 'px';
+    if (h1 < h0) g.to(panel, {minHeight:h1, duration:.55, ease:'power2.inOut', onComplete(){ panel.style.minHeight = ''; }});
+    else panel.style.minHeight = '';
     g.fromTo(panel, {opacity:0, x:dir * 34, y:dir ? 0 : 10}, {opacity:1, x:0, y:0, duration:.55, ease:OUT, clearProps:'transform,opacity'});
   }});
 };
-/* Variante « papier crème » : une feuille aux bords déchirés balaie le panneau, le contenu change dessous. */
-function tornEdge(){
-  const pts = []; for (let i = 0; i <= 22; i++) pts.push(i / 22);
-  return pts;
-}
-function paperWipe(panel, dir, apply){
-  const r = panel.getBoundingClientRect();
-  const W = r.width, H = Math.max(r.height, 360), E = 56;
-  const clip = document.createElement('div'); clip.className = 'paper-clip'; clip.setAttribute('aria-hidden', 'true');
-  clip.style.cssText = `left:${r.left + scrollX}px;top:${r.top + scrollY}px;width:${W}px;height:${H}px`;
-  const sheet = document.createElement('div'); sheet.className = 'paper-sheet'; sheet.style.width = (W + 2 * E) + 'px';
-  const inner = document.createElement('div'); inner.className = 'paper-in';
-  const left = tornEdge().map(t => `${(rnd(3, 16)).toFixed(1)}px ${(t * 100).toFixed(1)}%`);
-  const right = tornEdge().reverse().map(t => `calc(100% - ${(rnd(3, 16)).toFixed(1)}px) ${(t * 100).toFixed(1)}%`);
-  inner.style.clipPath = `polygon(${left.concat(right).join(',')})`;
-  sheet.append(inner); clip.append(sheet); document.body.append(clip);
-  const WD = W + 2 * E;
-  const x0 = dir >= 0 ? -WD : W, x1 = -E, x2 = dir >= 0 ? W : -WD;
-  g.set(sheet, {x:x0});
-  const tl = g.timeline({onComplete(){ clip.remove(); }});
-  tl.to(sheet, {x:x1, duration:.3, ease:'gite-io'})
-    .add(() => { apply(); })
-    .fromTo(panel, {opacity:.0, y:14}, {opacity:1, y:0, duration:.4, ease:OUT, clearProps:'transform,opacity'}, '>+0.02')
-    .to(sheet, {x:x2, duration:.36, ease:'power2.out'}, '<');
-}
 
 /* ---------- Tampon « Retenu » : il claque sur sa cible, l'encre s'écrase ---------- */
 GM.stamp = function(el, delay){
@@ -145,9 +128,9 @@ GM.stamp = function(el, delay){
 /* ---------- Carte qui se retourne ---------- */
 GM.flip = function(card, mid){
   if (!on() || !card) { mid(); return; }
-  card._enter = true; g.killTweensOf(card);
+  card._enter = true; card.classList.add('flipping'); g.killTweensOf(card);
   g.set(card, {transformPerspective:900});
-  g.timeline({onComplete(){ card._enter = false; g.set(card, {clearProps:'transform'}); }})
+  g.timeline({onComplete(){ card._enter = false; card.classList.remove('flipping'); g.set(card, {clearProps:'transform'}); }})
     .to(card, {rotationY:90, y:-6, duration:.2, ease:'power2.in'})
     .add(mid)
     .fromTo(card, {rotationY:-90}, {rotationY:0, y:0, duration:.38, ease:'power3.out'});
@@ -181,13 +164,19 @@ GM.parallax = function(dw){
 /* Dates : la case touchée envoie une onde le long de la ligne, la colonne du total se rééquilibre. */
 GM.wave = function(row, idx){
   if (!on() || !row) return false;
-  const cells = $$('.dc', row); if (!cells.length) return false;
-  g.fromTo(cells, {scale:1}, {scale:1.16, duration:.16, ease:'power2.out', yoyo:true, repeat:1, stagger:{each:.045, from:idx}, overwrite:'auto', clearProps:'transform'});
+  const c = $$('.dc', row)[idx]; if (!c) return false;
+  g.fromTo(c, {scale:.82}, {scale:1, duration:.5, ease:'back.out(2.4)', overwrite:'auto', clearProps:'transform'});
   return true;
 };
 GM.bars = function(bars, prevs){
   if (!on() || !bars.length) return false;
-  bars.forEach((b, i) => { const p = prevs[i]; const fin = b.style.transform; if (p && p !== fin) g.fromTo(b, {transform:p}, {transform:fin, duration:.7, ease:'elastic.out(1,.55)', clearProps:'transform'}); });
+  const val = t => { const m = /scaleY\(([-\d.]+)\)/.exec(t || ''); return m ? +m[1] : null; };
+  bars.forEach((b, i) => {
+    const from = val(prevs[i]), fin = b.style.transform, to = val(fin);
+    if (from === null || to === null || from === to) return;
+    g.killTweensOf(b);
+    g.fromTo(b, {scaleY:from}, {scaleY:to, duration:.6, ease:'power3.out', onComplete(){ b.style.transform = fin; }});
+  });
   return true;
 };
 /* Comparateur : la meilleure note de chaque ligne s'allume, la plus basse s'éteint. */
@@ -319,14 +308,46 @@ GM.drawer = function(dw){
   GM.parallax(dw);
   const photo = $('.dw-photo', dw), img = $('.dw-photo .ph > img', dw), pad = $$('.dw-pad > *', dw), title = $('.dw-title', dw);
   const tl = g.timeline({defaults:{ease:OUT}});
-  if (photo) tl.fromTo(photo, {clipPath:'inset(0 0 100% 0)'}, {clipPath:'inset(0 0 0% 0)', duration:.7, clearProps:'clipPath'}, .05);
-  if (img) tl.fromTo(img, {scale:1.5}, {scale:1.22, duration:1.3, clearProps:'transform'}, .05);
-  tl.from(pad, {opacity:0, y:22, duration:.55, stagger:.06, clearProps:CLEAR}, .18);
+  if (img) tl.fromTo(img, {scale:1.3}, {scale:1.22, duration:1.1, clearProps:'transform'}, .1);
+  tl.from(pad, {opacity:0, y:16, duration:.5, stagger:.05, clearProps:CLEAR}, .3);
   if (title && window.SplitText) {
     const sp = SplitText.create(title, {type:'words', aria:'auto'});
-    tl.from(sp.words, {opacity:0, y:20, duration:.6, stagger:.045, onComplete:() => sp.revert()}, .3);
+    tl.from(sp.words, {opacity:0, y:16, duration:.5, stagger:.04, onComplete:() => sp.revert()}, .38);
   }
   return true;
+};
+
+
+/* ---------- Fiche : la carte grandit depuis sa vignette jusqu'au centre ---------- */
+function growFrom(dw, src){
+  const r = dw.getBoundingClientRect();
+  if (!src || !r.width) return null;
+  const s = Math.min(1, src.width / r.width);
+  const dx = src.left + src.width / 2 - (r.left + r.width / 2), dy = src.top + src.height / 2 - (r.top + r.height / 2);
+  const vis = Math.min(r.height, src.height / s), cut = Math.max(0, (r.height - vis) / 2);
+  return {dx, dy, s, cut};
+}
+GM.modalOpen = function(dw, scrim, src, done){
+  if (!on() || !dw) return false;
+  g.killTweensOf([dw, scrim]);
+  const f = growFrom(dw, src), body = $('.dw-scroll', dw), close = $('.dw-close', dw);
+  g.fromTo(scrim, {opacity:0}, {opacity:1, duration:.35, ease:'power2.out'});
+  if (!f) { g.fromTo(dw, {opacity:0, scale:.94, y:14}, {opacity:1, scale:1, y:0, duration:.4, ease:OUT, clearProps:'transform,opacity'}); return true; }
+  const rad = Math.round(16 / f.s);
+  g.fromTo(dw, {x:f.dx, y:f.dy, scale:f.s, clipPath:`inset(${f.cut}px 0px ${f.cut}px 0px round ${rad}px)`},
+    {x:0, y:0, scale:1, clipPath:'inset(0px 0px 0px 0px round 22px)', duration:.62, ease:'expo.out', clearProps:'transform,clipPath', onComplete(){ done && done(); }});
+  g.fromTo([body, close], {opacity:0}, {opacity:1, duration:.3, delay:.16, ease:'power1.out', clearProps:'opacity'});
+  return true;
+};
+GM.modalClose = function(dw, scrim, src, done){
+  if (!on() || !dw) { done(); return; }
+  g.killTweensOf([dw, scrim]);
+  g.to(scrim, {opacity:0, duration:.3, ease:'power2.out'});
+  const f = growFrom(dw, src), body = $('.dw-scroll', dw), close = $('.dw-close', dw);
+  g.to([body, close], {opacity:0, duration:.14, ease:'power1.out'});
+  if (!f) { g.to(dw, {opacity:0, scale:.95, y:10, duration:.24, ease:OUT, onComplete:done}); return; }
+  const rad = Math.round(16 / f.s);
+  g.to(dw, {x:f.dx, y:f.dy, scale:f.s, clipPath:`inset(${f.cut}px 0px ${f.cut}px 0px round ${rad}px)`, duration:.4, ease:'power3.inOut', onComplete:done});
 };
 
 /* ---------- Coup de cœur : pluie de cœurs avec de la gravité ---------- */

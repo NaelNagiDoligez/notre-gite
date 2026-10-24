@@ -70,7 +70,7 @@ Le site est alors disponible à l'adresse `https://<ton-compte>.github.io/notre-
 
 ## Animations et décor
 
-La **roue crantée** en haut à droite ouvre les réglages : animations, décor illustré, thème (selon l'heure, clair, sombre, comme l'appareil), changement d'onglet (glissement doux ou papier crème), profil et déconnexion. Ces réglages ne valent que pour la personne (ils sont gardés dans son navigateur).
+La **roue crantée** en haut à droite ouvre les réglages : animations, décor illustré, thème (selon l'heure, clair, sombre, comme l'appareil), profil et déconnexion. Ces réglages ne valent que pour la personne (ils sont gardés dans son navigateur).
 
 - **Ciel selon l'heure** : le soleil, la lune, les étoiles et les couleurs suivent l'heure de l'appareil ; la nuit (de 20 h 30 à 6 h 30), le thème sombre se met tout seul si le thème est sur « Selon l'heure ».
 - **Tampon « Retenu »** : il claque quand l'organisateur retient une semaine ou passe un logement en « Réservé ».

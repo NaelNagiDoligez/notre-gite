@@ -26,7 +26,7 @@ const DEFAULT_CONFIG = {
   closed: false, closedAt: null
 };
 const VIEWS = ['galerie','comparateur','podium','carte','dates'];
-const TRIP_FIELDS = [['destination','Destination','France'],['periode','Période','Dates à définir'],['budget','Budget','À définir']];
+const TRIP_FIELDS = [['destination','Destination','France'],['periode','Période','Dates à définir']];
 const SOURCES = [['airbnb','Airbnb'],['booking.','Booking.com'],['abritel','Abritel'],['vrbo','Vrbo'],['gites-de-france','Gîtes de France'],['leboncoin','Leboncoin'],['clevacances','Clévacances'],['expedia','Expedia'],['interhome','Interhome'],['belvilla','Belvilla'],['papvacances','PAP Vacances'],['homeexchange','HomeExchange'],['tripadvisor','Tripadvisor']];
 const EASE_OUT = 'cubic-bezier(0.23,1,0.32,1)', EASE_IO = 'cubic-bezier(0.77,0,0.175,1)', EASE_BACK = 'cubic-bezier(0.34,1.56,0.64,1)';
 const POP = [{transform:'scale(1)'}, {transform:'scale(1.4)'}, {transform:'scale(1)'}];
@@ -93,8 +93,7 @@ function applyMotion(){
 /* ---------- Roue crantée : réglages rapides ---------- */
 const PREFS = {
   scene: () => store.get('gite-scene') !== 'off',
-  theme: () => store.get('gite-theme') || 'time',
-  wipe: () => store.get('gite-wipe') || 'fade'
+  theme: () => store.get('gite-theme') || 'time'
 };
 function renderGear(){
   const p = $('#gear-pop'); if (!p) return;
@@ -109,7 +108,6 @@ function renderGear(){
       ${sw('scene', 'Décor illustré', 'Paysage et ciel qui suit l’heure', PREFS.scene())}
     </div>
     <label class="gp-f"><span>Thème</span><select id="gp-theme" class="input">${opt('time', PREFS.theme(), 'Selon l’heure')}${opt('light', PREFS.theme(), 'Clair')}${opt('dark', PREFS.theme(), 'Sombre')}${opt('system', PREFS.theme(), 'Comme mon appareil')}</select></label>
-    <label class="gp-f"><span>Changement d’onglet</span><select id="gp-wipe" class="input">${opt('fade', PREFS.wipe(), 'Glissement doux')}${opt('paper', PREFS.wipe(), 'Papier crème')}</select></label>
     ${out ? '<button type="button" class="btn gp-out" data-act="logout">Se déconnecter</button>' : ''}`;
 }
 function openGear(){
@@ -127,7 +125,6 @@ function setPref(k, v){
   if (k === 'motion') { motion = !motion; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); return; }
   if (k === 'scene') { store.set('gite-scene', PREFS.scene() ? 'off' : 'on'); }
   if (k === 'theme') store.set('gite-theme', v);
-  if (k === 'wipe') store.set('gite-wipe', v);
   if (window.GiteScene) GiteScene.refresh();
 }
 function anim(el, kf, opts){ if (!M() || !el || !el.animate) return null; try { return el.animate(kf, opts); } catch (e) { return null; } }
@@ -724,7 +721,7 @@ function setView(v){
   renderTabs();
   if (M() && GM.swap && lastView) {
     S.swapping = true;
-    GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; }, PREFS.wipe());
+    GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; });
   } else renderView();
 }
 function readHash(){ const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
@@ -1076,6 +1073,12 @@ function fillPodium(changed){
 }
 
 /* ---------- Fiche ---------- */
+function srcRectOf(el){
+  if (!el || !document.contains(el)) return null;
+  const c = el.closest('.card, .ml-item, li') || el; const r = c.getBoundingClientRect();
+  if (r.width < 8 || r.bottom < 0 || r.top > innerHeight) return null;
+  return r;
+}
 function openListing(id){
   if (!S.listings[id]) return;
   const wasOpen = !!S.openId;
@@ -1084,9 +1087,14 @@ function openListing(id){
   const w = $('#drawer-wrap'), dw = $('#drawer');
   dw.innerHTML = drawerHTML(S.listings[id]);
   if (canSee(id)) S.unlockedSeen.add(id);
-  if (!wasOpen) { w.hidden = false; void w.offsetWidth; w.classList.add('open'); $('#app').inert = true; }
-  else $('.dw-scroll', dw).scrollTop = 0;
-  $('#dw-close').focus();
+  let grown = false;
+  if (!wasOpen) {
+    const src = srcRectOf(S.clickSrc || S.drawerTrigger);
+    w.hidden = false; void w.offsetWidth; w.classList.add('open'); $('#app').inert = true;
+    grown = M() && GM.modalOpen && GM.modalOpen(dw, $('.dw-scrim', w), src);
+  } else $('.dw-scroll', dw).scrollTop = 0;
+  S.clickSrc = null;
+  $('#dw-close').focus({preventScroll:true});
   markPins(); closePop();
   if (M() && !(GM.drawer && GM.drawer(dw))) {
     anim($('.dw-photo .ph > *', dw), [{transform:'scale(1.12)', opacity:.3}, {transform:'none', opacity:1}], {duration:900, easing:EASE_OUT});
@@ -1095,14 +1103,14 @@ function openListing(id){
 }
 function closeDrawer(){
   if (!S.openId) return;
-  const w = $('#drawer-wrap'); w.classList.remove('open');
+  const w = $('#drawer-wrap'), dw = $('#drawer'); w.classList.remove('open');
   const lastId = S.openId;
   S.openId = null; $('#app').inert = false;
-  const fin = () => { if (!S.openId) { w.hidden = true; $('#drawer').innerHTML = ''; } };
-  if (M()) setTimeout(fin, 420); else fin();
   let t = S.drawerTrigger;
   if (!t || !document.contains(t)) t = $(`#app [data-open="${CSS.escape(lastId)}"]`);
-  if (t) t.focus();
+  const fin = () => { if (!S.openId) { w.hidden = true; dw.innerHTML = ''; } };
+  if (M() && GM.modalClose) GM.modalClose(dw, $('.dw-scrim', w), srcRectOf(t), fin); else fin();
+  if (t) t.focus({preventScroll:true});
   markPins();
 }
 function markPins(){ $$('.pin').forEach(p => p.classList.toggle('on', p.dataset.open === S.openId)); }
@@ -1256,16 +1264,19 @@ function toggleMark(lid, kind){
     else { v[kind] = lid; v[kind + 'Why'] = ''; if (v[other] === lid) { v[other] = null; v[other + 'Why'] = ''; } }
   });
   saveVote(true);
+  const sc = $('.dw-scroll'), sel = `#dw-vote [data-${kind}="${CSS.escape(lid)}"]`;
+  const top0 = ($(sel) || {getBoundingClientRect:() => ({top:0})}).getBoundingClientRect().top;
+  const hold = () => { const b = $(sel); if (sc && b) sc.scrollTop += b.getBoundingClientRect().top - top0; };
   $('#dw-vote').innerHTML = dwVote(S.listings[lid]); setSave('Enregistrement…');
   const btn = $(`[data-${kind}="${CSS.escape(lid)}"]`);
   const on = votesOf(S.myId)[kind] === lid;
   if (btn) {
-    btn.focus();
+    btn.focus({preventScroll:true});
     if (on && kind === 'heart') { anim($('svg', btn), [{transform:'scale(1)'}, {transform:'scale(1.6)'}, {transform:'scale(1)'}], {duration:420, easing:EASE_OUT}); burst(btn); }
     if (on && kind === 'veto') { anim(btn, [{transform:'translateX(0)'}, {transform:'translateX(-6px)'}, {transform:'translateX(6px)'}, {transform:'translateX(-3px)'}, {transform:'none'}], {duration:340, easing:'ease-out'}); anim($('svg', btn), [{transform:'rotate(0)'}, {transform:'rotate(-24deg)'}, {transform:'rotate(20deg)'}, {transform:'rotate(-12deg)'}, {transform:'none'}], {duration:420, easing:'ease-out'}); }
   }
   S.st = computeStats(); const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[lid]);
-  schedule();
+  hold(); schedule();
 }
 
 /* ---------- Ajouter / modifier un logement ---------- */
@@ -1398,6 +1409,28 @@ async function ocrQueue(){
     if ($('#f-listing') && ML.shots.some(s => s.state === 'wait')) ocrQueue();
   }
 }
+/* Commune saisie → département proposé (API officielle geo.api.gouv.fr), surligné comme les champs remplis automatiquement. */
+let deptTimer = 0, deptSeq = 0;
+function lookupDept(delay){
+  clearTimeout(deptTimer);
+  deptTimer = setTimeout(async () => {
+    const c = $('#li-commune'), d = $('#li-dept'); if (!c || !d) return;
+    const name = c.value.trim(); if (name.length < 3 || ML.touched['li-dept']) return;
+    if (d.value && !d.classList.contains('auto-filled')) return;
+    const seq = ++deptSeq;
+    try {
+      const r = await fetch('https://geo.api.gouv.fr/communes?nom=' + encodeURIComponent(name) + '&fields=nom,codeDepartement&boost=population&limit=5');
+      if (!r.ok) return; const list = await r.json(); if (seq !== deptSeq || !Array.isArray(list) || !list.length) return;
+      const norm = x => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const hit = list.find(x => norm(x.nom) === norm(name)) || list[0];
+      const code = hit && hit.codeDepartement;
+      const cur = $('#li-dept'); if (!cur || !code || ML.touched['li-dept'] || cur.value === code) return;
+      if (!Array.from(cur.options).some(o => o.value === code)) return;
+      cur.value = code; cur.classList.add('auto-filled'); cur.classList.remove('flash'); void cur.offsetWidth; if (M()) cur.classList.add('flash');
+      ML.lat = null; ML.lng = null; ML.ai = true;
+    } catch (e) { /* hors ligne : on laisse le choix à la main */ }
+  }, delay);
+}
 function runParse(){
   if (!$('#f-listing')) return 0;
   const shots = ML.shots.filter(s => s.state === 'text');
@@ -1415,6 +1448,7 @@ function runParse(){
   };
   setF('li-title', r.title); setF('li-price', r.price); setF('li-dates', r.priceDates);
   setF('li-commune', r.commune); setF('li-dept', r.dept);
+  if (r.commune && !r.dept) lookupDept(0);
   setF('li-bedrooms', r.bedrooms); setF('li-beds', r.beds);
   setF('li-eq', r.equipments && r.equipments.join(', '));
   autoSource();
@@ -1683,7 +1717,7 @@ function buildMD(){
   const L = [];
   L.push('# ' + (c.title || DEFAULT_CONFIG.title) + ' : récapitulatif', '');
   L.push('Exporté le ' + fmtLong(Date.now()) + (c.closed ? ' · votes clos le ' + fmtLong(c.closedAt) : ' · votes en cours'), '');
-  L.push('- Destination : ' + (t.destination || 'France'), '- Période : ' + (t.periode || 'à définir'), '- Budget : ' + (t.budget || 'à définir'), '- Groupe : ' + plural(ids.length, 'inscrit'), '');
+  L.push('- Destination : ' + (t.destination || 'France'), '- Période : ' + (t.periode || 'à définir'), '- Groupe : ' + plural(ids.length, 'inscrit'), '');
   L.push('## Classement', '');
   ranked.forEach((r, i) => {
     const l = r.l, s = r.s;
@@ -1744,7 +1778,7 @@ function bindStatic(){
     const sw = e.target.closest('[data-pref]'); if (!sw) return;
     setPref(sw.dataset.pref); renderGear(); const n = $(`[data-pref="${sw.dataset.pref}"]`, gp); if (n) n.focus({preventScroll:true});
   });
-  gp.addEventListener('change', e => { if (e.target.id === 'gp-theme') setPref('theme', e.target.value); else if (e.target.id === 'gp-wipe') setPref('wipe', e.target.value); });
+  gp.addEventListener('change', e => { if (e.target.id === 'gp-theme') setPref('theme', e.target.value); });
   $('#rv-skip').addEventListener('click', () => { if (revealSkip) revealSkip(); });
   $('#rv-done').addEventListener('click', closeReveal);
 
@@ -1768,7 +1802,7 @@ function bindStatic(){
     if (d.score) return setScore(d.c, +d.score);
     if (d.heart) return toggleMark(d.heart, 'heart');
     if (d.veto) return toggleMark(d.veto, 'veto');
-    if (d.open) { if (t.closest('.modal')) return; return openListing(d.open); }
+    if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; return openListing(d.open); }
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
     if (d.dep) { if (t.closest('.fr-big')) return selectDep(d.dep); S.mapSel = d.dep; lastView = null; S.view = 'galerie'; setView('carte'); return; }
@@ -1835,7 +1869,7 @@ function bindStatic(){
       const k = e.target.id === 'dw-hwhy' ? 'heartWhy' : 'vetoWhy'; const val = e.target.value.slice(0, 160);
       editMyVote(v => { v[k] = val; }); saveVote(false);
     }
-    if (e.target.id === 'li-commune') { ML.lat = null; ML.lng = null; }
+    if (e.target.id === 'li-commune') { ML.lat = null; ML.lng = null; lookupDept(500); }
   });
   document.addEventListener('submit', e => {
     const f = e.target; e.preventDefault();
@@ -1845,11 +1879,19 @@ function bindStatic(){
     else if (f.id === 'dw-cform') {
       const ta = $('#dw-ctext'); const text = ta.value.trim(); if (!text || !S.openId) return;
       if (!S.members[S.myId]) { openSettings(true); return; }
+      const btn = $('button[type=submit]', f); if (btn.disabled) return;
       const ref = S.db.collection('comments').doc();
       const c = {lid:S.openId, by:S.myId, text:text.slice(0, 1000), at:Date.now()};
       S.comments = Object.assign({}, S.comments, {[ref.id]:Object.assign({id:ref.id}, c)});
-      ta.value = ''; updateDrawer();
-      writeDoc('comments/' + ref.id, c);
+      btn.disabled = true; btn.classList.add('sent'); btn.textContent = 'Envoyé ✓'; ta.value = '';
+      updateDrawer();
+      const li = $(`#dw-clist [data-k="${CSS.escape(ref.id)}"]`);
+      if (li) {
+        li.classList.add('c-new');
+        const sc = $('.dw-scroll'); if (sc) { const r = li.getBoundingClientRect(), sr = sc.getBoundingClientRect(); if (r.bottom > sr.bottom - 80 || r.top < sr.top) sc.scrollTo({top:sc.scrollTop + r.top - sr.top - sr.height / 3, behavior:M() ? 'smooth' : 'auto'}); }
+      }
+      setTimeout(() => { const b = $('#dw-cform button[type=submit]'); if (b) { b.disabled = false; b.classList.remove('sent'); b.textContent = 'Envoyer'; } }, 1600);
+      writeDoc('comments/' + ref.id, c).then(() => toast('Commentaire envoyé'));
     }
   });
   document.addEventListener('paste', e => {
