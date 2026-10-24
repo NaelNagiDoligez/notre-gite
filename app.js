@@ -267,7 +267,15 @@ function flushVote(){
     setSave('Enregistré');
   }).catch(() => setSave(''));
 }
-function setSave(t){ const el = $('#dw-save'); if (el) el.textContent = t; }
+let savePillT = 0;
+function setSave(t){
+  const el = $('#dw-save'); if (el) el.textContent = t;
+  const dw = $('#drawer'); if (!dw || !S.openId || !t) return;
+  let pill = $('.dw-pill', dw); if (!pill) { pill = document.createElement('div'); pill.className = 'dw-pill'; pill.setAttribute('role', 'status'); dw.append(pill); }
+  const ok = t === 'Enregistré';
+  pill.textContent = ok ? '✓ Vote enregistré' : t; pill.classList.toggle('ok', ok); pill.classList.add('show');
+  clearTimeout(savePillT); savePillT = setTimeout(() => pill.classList.remove('show'), ok ? 1700 : 4000);
+}
 
 /* ---------- Pastilles coup de cœur / veto ---------- */
 function badgesHTML(l, s, inter, inline){
@@ -1367,10 +1375,10 @@ function renderShots(){
 const phSrc = p => p.type === 'existing' ? photoUrl(p.id) : p.type === 'shot' ? p.shot.url : p.url;
 function renderPhotoZone(){
   const el = $('#li-photo-zone'); if (!el) return;
-  const list = ML.photos.map((p, i) => `<div class="ph-item"><img src="${esc(phSrc(p))}" alt="Photo ${i + 1}"${p.type === 'existing' ? ' data-fb' : ''}>${i === 0 ? '<span class="ph-cover">Couverture</span>' : `<button type="button" class="ph-first" data-phfirst="${i}">En premier</button>`}<button type="button" class="ph-rm" data-rmphoto="${i}" aria-label="Retirer la photo ${i + 1}">×</button></div>`).join('');
+  const list = ML.photos.map((p, i) => `<div class="ph-item" data-pi="${i}"><img src="${esc(phSrc(p))}" alt="Photo ${i + 1}" draggable="false"${p.type === 'existing' ? ' data-fb' : ''}>${i === 0 ? '<span class="ph-cover">Couverture</span>' : ''}<button type="button" class="ph-rm" data-rmphoto="${i}" aria-label="Retirer la photo ${i + 1}">×</button></div>`).join('');
   const full = ML.photos.length >= MAX_PH;
   el.innerHTML = `${ML.photos.length ? `<div class="ph-list">${list}</div>` : `<div class="photo-prev"><div class="ph ph${hashN(ML.editId || 'new', 6) + 1}">${IC.house}</div></div>`}<div class="sec-gap" style="gap:8px">
-    ${ML.photos.length ? `<span class="hint">${ML.photos.length} / ${MAX_PH} photos. La première sert de couverture sur la carte.</span>` : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux cocher « Photo de la fiche » sur tes captures ci-dessus, ou ajouter des photos.</span>'}
+    ${ML.photos.length ? `<span class="hint">${ML.photos.length} / ${MAX_PH} photos. Glisse-les pour changer l’ordre : la première sert de couverture.</span>` : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux cocher « Photo de la fiche » sur tes captures ci-dessus, ou ajouter des photos.</span>'}
     ${S.assets ? `<div><input type="file" id="li-photo-file" accept="image/png,image/jpeg,image/webp" multiple class="sr-only"><label for="li-photo-file" class="btn btn-sm${full ? ' is-off' : ''}">${ML.photos.length ? 'Ajouter des photos' : 'Choisir des photos'}</label></div>` : '<span class="hint">L’ajout de photo n’est pas disponible avec ton accès.</span>'}</div>`;
 }
 function addShots(files){
@@ -1813,7 +1821,7 @@ function bindStatic(){
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
     if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
-    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-phfirst],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
@@ -1836,7 +1844,6 @@ function bindStatic(){
     if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
     if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
     if (d.rmphoto !== undefined) { const p = ML.photos[+d.rmphoto]; if (p && p.type === 'file') URL.revokeObjectURL(p.url); ML.photos.splice(+d.rmphoto, 1); renderShots(); renderPhotoZone(); return; }
-    if (d.phfirst !== undefined) { const [p] = ML.photos.splice(+d.phfirst, 1); if (p) ML.photos.unshift(p); renderPhotoZone(); return; }
     if (d.pnav !== undefined) { const tr = $('#dw-track'); if (tr) tr.scrollBy({left:+d.pnav * tr.clientWidth, behavior:M() ? 'smooth' : 'auto'}); return; }
     if (d.rmshot) { const i = +d.rmshot; const s = ML.shots[i]; if (s) URL.revokeObjectURL(s.url); ML.shots.splice(i, 1); if (s) ML.photos = ML.photos.filter(p => p.shot !== s); renderShots(); renderPhotoZone(); return; }
     switch (d.act) {
@@ -1877,6 +1884,45 @@ function bindStatic(){
     if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('pin')) { e.preventDefault(); openListing(e.target.dataset.open); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'dw-ctext') { e.preventDefault(); $('#dw-cform').requestSubmit(); }
   });
+  /* Glisser-déposer des photos du formulaire (souris et doigt) */
+  let PD = null;
+  document.addEventListener('pointerdown', e => {
+    const it = e.target.closest && e.target.closest('.ph-item'); if (!it || e.target.closest('button') || (e.button && e.button !== 0)) return;
+    PD = {it, id:e.pointerId, x:e.clientX, y:e.clientY, on:false, from:+it.dataset.pi};
+  });
+  document.addEventListener('pointermove', e => {
+    if (!PD || e.pointerId !== PD.id) return;
+    const {it} = PD, list = it.parentElement; const dx = e.clientX - PD.x, dy = e.clientY - PD.y;
+    if (!PD.on) {
+      if (Math.hypot(dx, dy) < 6) return;
+      PD.on = true; it.classList.add('drag'); try { it.setPointerCapture(e.pointerId); } catch (x) {}
+      const r = it.getBoundingClientRect(); PD.gx = PD.x - r.left; PD.gy = PD.y - r.top;
+    }
+    e.preventDefault();
+    const place = ev => { it.style.transform = ''; const r = it.getBoundingClientRect(); it.style.transform = `translate(${ev.clientX - PD.gx - r.left}px, ${ev.clientY - PD.gy - r.top}px) scale(1.06)`; };
+    place(e);
+    const others = $$('.ph-item', list).filter(x => x !== it);
+    const hit = others.find(x => { const r = x.getBoundingClientRect(); return e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom; });
+    if (hit) {
+      const before = new Map(others.map(x => [x, x.getBoundingClientRect()]));
+      const all = $$('.ph-item', list); const hi = all.indexOf(hit), ci = all.indexOf(it);
+      list.insertBefore(it, hi > ci ? hit.nextSibling : hit);
+      others.forEach(x => { const a = before.get(x), b = x.getBoundingClientRect(); if (M() && (a.left !== b.left || a.top !== b.top)) anim(x, [{transform:`translate(${a.left - b.left}px, ${a.top - b.top}px)`}, {transform:'none'}], {duration:240, easing:EASE_OUT}); });
+      place(e);
+    }
+  }, {passive:false});
+  const endDrag = e => {
+    if (!PD || (e.pointerId !== undefined && e.pointerId !== PD.id)) return;
+    const {it, on} = PD; PD = null; if (!on) return;
+    const order = $$('.ph-item', it.parentElement).map(x => +x.dataset.pi);
+    if (e.type !== 'pointercancel') ML.photos = order.map(i => ML.photos[i]).filter(Boolean);
+    const list = it.parentElement; const r0 = it.getBoundingClientRect();
+    it.classList.remove('drag'); it.style.transform = '';
+    const r1 = it.getBoundingClientRect();
+    if (M()) anim(it, [{transform:`translate(${r0.left - r1.left}px, ${r0.top - r1.top}px) scale(1.06)`}, {transform:'none'}], {duration:260, easing:EASE_OUT});
+    setTimeout(() => { if ($('#li-photo-zone')) renderPhotoZone(); }, M() ? 270 : 0);
+  };
+  document.addEventListener('pointerup', endDrag); document.addEventListener('pointercancel', endDrag);
   document.addEventListener('scroll', e => { const tr = e.target; if (!tr || tr.id !== 'dw-track') return; const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)); $$('.dw-dots span').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
   document.addEventListener('change', e => {
     const t = e.target;
@@ -1906,7 +1952,8 @@ function bindStatic(){
     else if (f.id === 'f-listing') saveListing();
     else if (f.id === 'f-settings') saveSettings(f);
     else if (f.id === 'dw-cform') {
-      const ta = $('#dw-ctext'); const text = ta.value.trim(); if (!text || !S.openId) return;
+      const ta = $('#dw-ctext'); const text = ta.value.trim(); if (!S.openId) return;
+      if (!text) { ta.focus(); ta.classList.remove('shake'); void ta.offsetWidth; ta.classList.add('shake'); const h = $('#dw-cform .hint'); if (h) { h.textContent = 'Écris d’abord ton commentaire.'; h.classList.add('warn'); setTimeout(() => { h.textContent = 'Ctrl + Entrée pour envoyer'; h.classList.remove('warn'); }, 2200); } return; }
       if (!S.members[S.myId]) { openSettings(true); return; }
       const btn = $('button[type=submit]', f); if (btn.disabled) return;
       const ref = S.db.collection('comments').doc();

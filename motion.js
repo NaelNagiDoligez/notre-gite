@@ -352,7 +352,7 @@ GM.modalOpen = function(dw, scrim, src, done){
   const gh = ghost(src); dw._src = src;
   Object.assign(dw.style, {inset:'auto', margin:'0', maxHeight:'none', overflow:'hidden', left:r0.left + 'px', top:r0.top + 'px', width:r0.width + 'px', height:r0.height + 'px', borderRadius:'16px'});
   body.style.width = r1.width + 'px'; body.style.flex = '0 0 auto'; body.style.opacity = '0'; close.style.opacity = '0';
-  dw.append(gh); src.style.opacity = '0';
+  dw.append(gh);
   const tl = g.timeline({onComplete(){ modalClean(dw); done && done(); }});
   tl.to(dw, {left:r1.left, top:r1.top, width:r1.width, height:r1.height, borderRadius:22, duration:.6, ease:'power3.inOut'}, 0)
     .to(gh, {opacity:0, duration:.3, ease:'power1.out'}, .1)
@@ -371,8 +371,8 @@ GM.modalClose = function(dw, scrim, src, done){
   const r1 = dw.getBoundingClientRect(), gh = ghost(src); dw._src = src;
   Object.assign(dw.style, {inset:'auto', margin:'0', maxHeight:'none', overflow:'hidden', left:r1.left + 'px', top:r1.top + 'px', width:r1.width + 'px', height:r1.height + 'px'});
   body.style.width = r1.width + 'px'; body.style.flex = '0 0 auto';
-  gh.style.opacity = '0'; dw.append(gh); src.style.opacity = '0';
-  const tl = g.timeline({onComplete(){ src.style.opacity = ''; modalClean(dw); done(); }});
+  gh.style.opacity = '0'; dw.append(gh);
+  const tl = g.timeline({onComplete(){ modalClean(dw); done(); }});
   tl.to([body, close], {opacity:0, duration:.16, ease:'power1.out'}, 0)
     .to(gh, {opacity:1, duration:.22, ease:'power1.out'}, 0)
     .to(dw, {left:r0.left, top:r0.top, width:r0.width, height:r0.height, borderRadius:16, duration:.42, ease:'power3.inOut'}, 0);
