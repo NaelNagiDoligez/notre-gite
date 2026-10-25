@@ -60,9 +60,9 @@ GM.intro = function(done){
   if (introSplit) tl.from(introSplit.chars, {opacity:0, y:48, rotation:() => rnd(-9, 9), duration:1, stagger:.03}, .1);
   const sq = $('.hdr .squig path');
   if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.2}, .65);
-  tl.from($$('.hdr-r > *'), {opacity:0, y:14, duration:.6, stagger:.07}, .35);
-  tl.from($$('#trip .tf'), {opacity:0, y:18, duration:.7, stagger:.08}, .55);
-  tl.from($$('.bar .tab'), {opacity:0, y:12, duration:.55, stagger:.05}, .8);
+  tl.from($$('.hdr-r > *'), {opacity:0, y:14, duration:.6, stagger:.07, clearProps:'opacity,transform'}, .35);
+  tl.from($$('#trip .tf'), {opacity:0, y:18, duration:.7, stagger:.08, clearProps:'opacity,transform'}, .55);
+  tl.from($$('.bar .tab'), {opacity:0, y:12, duration:.55, stagger:.05, clearProps:'opacity,transform'}, .8);
   tl.from('#add-btn', {opacity:0, scale:.92, duration:.5}, 1.05);
 };
 function abortIntro(){

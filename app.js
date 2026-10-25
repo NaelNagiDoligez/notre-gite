@@ -890,7 +890,7 @@ function backHTML(l, s, see){
     body = s.overall == null ? '<p class="muted small">Personne n’a encore tout noté.</p>' :
       `<ul class="bk-list">${cs.map(c => { const v = s.per[c.id]; return `<li><span>${esc(c.label)}</span><span class="gauge"><span style="transform:scaleX(${v == null ? 0 : (v / 10).toFixed(3)})"></span></span><b>${v == null ? '–' : fmtScore(v)}</b></li>`; }).join('')}</ul>`;
   } else body = `<div class="bk-lock">${IC.lock}<p>Note ce logement pour voir les notes du groupe.</p></div>`;
-  return `<div class="card-back" aria-hidden="${!S.flipped.has(l.id)}"><div class="bk-top"><h3 class="bk-t">${esc(l.title || 'Sans titre')}</h3>${see && s.overall != null ? `<span class="bk-score">${fmtScore(s.overall)}<small>/10</small></span>` : ''}</div>${body}<div class="bk-foot"><button type="button" class="btn btn-sm" data-open="${esc(l.id)}">Ouvrir la fiche</button></div></div>`;
+  return `<div class="card-back" aria-hidden="${!S.flipped.has(l.id)}"><div class="bk-top"><h3 class="bk-t">${esc(l.title || 'Sans titre')}</h3>${see && s.overall != null ? `<span class="bk-score">${fmtScore(s.overall)}<small>/10</small></span>` : ''}</div>${body}</div>`;
 }
 function emptyHTML(){
   if (!dataReady()) return '<div class="ghost" aria-hidden="true"></div><div class="ghost" aria-hidden="true"></div><p class="muted" style="grid-column:1/-1">Chargement du carnet…</p>';
@@ -1965,8 +1965,16 @@ function bindStatic(){
     const place = ev => { it.style.transform = ''; const r = it.getBoundingClientRect(); it.style.transform = `translate(${ev.clientX - PD.gx - r.left}px, ${ev.clientY - PD.gy - r.top}px) scale(1.06)`; };
     place(e);
     const others = $$('.ph-item', list).filter(x => x !== it);
-    const hit = others.find(x => { const r = x.getBoundingClientRect(); return e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom; });
+    /* On n'échange que lorsque le pointeur a dépassé le centre de la voisine (et pas avant 180 ms après le dernier échange) : plus d'allers-retours rapides */
+    const mine = PD.slot ? PD.slot : (PD.slot = it.getBoundingClientRect());
+    const hit = performance.now() - (PD.t || 0) < 180 ? null : others.find(x => {
+      const r = x.getBoundingClientRect(); if (!(e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom)) return false;
+      const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, all = $$('.ph-item', list), fwd = all.indexOf(x) > all.indexOf(it);
+      const sameRow = Math.abs(cy - (mine.top + mine.bottom) / 2) < r.height / 2;
+      return sameRow ? (fwd ? e.clientX > cx : e.clientX < cx) : (fwd ? e.clientY > cy : e.clientY < cy);
+    });
     if (hit) {
+      PD.t = performance.now(); PD.slot = null;
       const before = new Map(others.map(x => [x, x.getBoundingClientRect()]));
       const all = $$('.ph-item', list); const hi = all.indexOf(hit), ci = all.indexOf(it);
       list.insertBefore(it, hi > ci ? hit.nextSibling : hit);
@@ -1986,9 +1994,9 @@ function bindStatic(){
     setTimeout(() => { if ($('#li-photo-zone')) renderPhotoZone(); }, M() ? 270 : 0);
   };
   document.addEventListener('pointerup', endDrag); document.addEventListener('pointercancel', endDrag);
-  document.addEventListener('pointerover', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) showPinTip(pin); });
+  document.addEventListener('pointerover', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('pointerout', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && !(e.relatedTarget && pin.contains(e.relatedTarget))) hidePinTip(); });
-  document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) showPinTip(pin); });
+  document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
   document.addEventListener('keydown', () => { S.kbd = true; }, true);
   document.addEventListener('pointerdown', () => { S.kbd = false; }, true);
