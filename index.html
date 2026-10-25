@@ -7,7 +7,7 @@
 try { var m = localStorage.getItem('gite-motion'); if (m ? m === 'on' : !matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('js-motion'); } catch (e) {}
 </script>
 <script src="scene.js"></script>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="description" content="Carnet partagé pour proposer des gîtes, les noter ensemble et choisir où partir cet été.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B8502D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6'/%3E%3C/svg%3E">
 <title>Notre gîte d'été</title>
@@ -651,6 +651,32 @@ select option:checked{background:var(--accent-soft) linear-gradient(var(--accent
   select option:hover,select option:focus-visible{background:var(--accent-soft);color:var(--ink);box-shadow:none}
   select option:checked{background:var(--accent-soft);color:var(--ink);font-weight:700;box-shadow:none}
   select option::checkmark{color:var(--accent)}
+}
+</style>
+<style>
+/* Téléphone : défilement vertical uniquement, pas de zoom, comparateur en cartes */
+html,body{max-width:100%;overflow-x:clip}
+html{touch-action:pan-x pan-y}
+.cmp .c-name{z-index:2}.cmp .pas{z-index:0}
+.cmp-cards{display:none}
+.cc-bar{display:flex;gap:8px;align-items:flex-end;margin-bottom:12px}
+.cc-sort{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.cc-sort .input{text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink);width:100%}
+.cc-dir{min-width:44px;min-height:44px;padding:0;font-size:18px}
+.cc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.cc-top{align-items:center}.cc-top .grow{flex:1;min-width:0}
+.cc-top .tt{overflow-wrap:anywhere}
+.cc-sc{display:flex;align-items:baseline;gap:3px;flex:0 0 auto}.cc-sc small{color:var(--muted);font-size:12px}
+.cc-meta{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-top:10px}
+.cc-crit{list-style:none;margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.cc-crit li{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cc-l{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:700px){
+  .tbl-wrap.is-cmp,#cmp-wrap{border:0;background:none;border-radius:0;overflow:visible}
+  #cmp-wrap .cmp{display:none}
+  #cmp-wrap .cmp-cards{display:block}
+  input,select,textarea,.input{font-size:16px}
+  .gear-pop{max-width:calc(100vw - 32px)}
 }
 </style>
 </head>

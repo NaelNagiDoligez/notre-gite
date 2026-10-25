@@ -113,7 +113,7 @@ function renderGear(){
 function openGear(){
   const p = $('#gear-pop'), b = $('#gear-btn'); if (!p.hidden) { closeGear(); return; }
   closePop(); renderGear(); p.hidden = false; b.setAttribute('aria-expanded', 'true');
-  const r = b.getBoundingClientRect(); p.style.top = Math.round(r.bottom + 8) + 'px'; p.style.right = Math.max(16, Math.round(innerWidth - r.right)) + 'px'; p.style.left = 'auto';
+  const r = b.getBoundingClientRect(); const cw = Math.min(document.documentElement.clientWidth, innerWidth), pw = Math.min(340, cw - 32); p.style.top = Math.round(r.bottom + 8) + 'px'; p.style.width = pw + 'px'; p.style.right = 'auto'; p.style.left = Math.round(Math.max(16, Math.min(r.right - pw, cw - pw - 16))) + 'px'; p.style.transformOrigin = Math.round(r.left + r.width / 2 - parseFloat(p.style.left)) + 'px top';
   anim(p, [{opacity:0, transform:'translateY(-8px) scale(.96)'}, {opacity:1, transform:'none'}], {duration:240, easing:EASE_OUT});
   const f = $('[data-pref]', p) || $('button', p); if (f) f.focus({preventScroll:true});
 }
@@ -471,14 +471,11 @@ function fillDates(changed){
     if (u === me && canMark) return `<td${hl(w)}><button type="button" class="dc${has ? ' s' + a : ''}" data-week="${w.id}" aria-label="${esc('Ma réponse, ' + lab)}">${has ? ICO[a] : ''}</button></td>`;
     return `<td${hl(w)}><span class="dc${has ? ' s' + a : ''}" role="img" aria-label="${esc(nameOf(u) + ', ' + lab)}">${has ? ICO[a] : ''}</span></td>`;
   };
-  let card;
   const owner = S.isOwner && canEdit();
-  if (t.week) {
-    const w = WEEKS.find(x => x.id === t.week);
-    card = `<div><p class="lab">Semaine retenue</p><p class="big">${esc(w ? weekLabel(w) : (t.periode || ''))}</p></div>${owner ? '<button type="button" class="btn" data-act="unfix-week">Changer de semaine</button>' : ''}`;
-  } else if (best) {
-    card = `<div><p class="lab">En tête du sondage</p><p class="big">${esc(weekLabel(best.w))}</p><p>${best.yes} dispo · ${best.maybe} peut-être · ${best.no} pas dispo, sur ${esc(plural(ids.length, 'inscrit'))}</p></div>${owner ? `<button type="button" class="btn" data-fixweek="${best.w.id}">Retenir cette semaine</button>` : ''}`;
-  } else card = '<div><p class="big">Personne n’a encore répondu</p><p>Coche tes semaines possibles : la meilleure apparaîtra ici et dans le bandeau.</p></div>';
+  const cRet = () => { const w = WEEKS.find(x => x.id === t.week); return `<div><p class="lab">Semaine retenue</p><p class="big">${esc(w ? weekLabel(w) : (t.periode || ''))}</p></div>${owner ? '<button type="button" class="btn" data-act="unfix-week">Changer de semaine</button>' : ''}`; };
+  const cBest = (b = best) => `<div><p class="lab">En tête du sondage</p><p class="big">${esc(weekLabel(b.w))}</p><p>${b.yes} dispo · ${b.maybe} peut-être · ${b.no} pas dispo, sur ${esc(plural(ids.length, 'inscrit'))}</p></div>${owner ? `<button type="button" class="btn" data-fixweek="${b.w.id}">Retenir cette semaine</button>` : ''}`;
+  const cNone = '<div><p class="big">Personne n’a encore répondu</p><p>Coche tes semaines possibles : la meilleure apparaîtra ici et dans le bandeau.</p></div>';
+  const card = t.week ? cRet() : best ? cBest() : cNone;
   const table = ids.length ? `<div class="tbl-wrap"><table class="dt"><thead><tr><th scope="col" style="text-align:left;padding-left:12px">Personne</th>${WEEKS.map(w => `<th scope="col"${hl(w)}>${esc(dShort(w.s))}<br><span style="font-weight:600">→ ${esc(dShort(w.e))}</span></th>`).join('')}</tr></thead>
     <tbody>${order.map(u => `<tr><th scope="row">${esc(nameOf(u))}${u === me ? ' <span class="muted" style="font-weight:600">(toi)</span>' : ''}</th>${WEEKS.map(w => cell(u, w)).join('')}</tr>`).join('')}</tbody>
     <tfoot><tr><th scope="row" style="text-align:left;padding-left:12px">Total</th>${ws.map(x => `<td${hl(x.w)}><div class="wbar"><span class="col"><span style="transform:scaleY(${(x.score / max).toFixed(3)})"></span></span><span class="num small">${x.yes}${x.maybe ? ' + ' + x.maybe : ''}</span></div></td>`).join('')}</tr></tfoot></table></div>
@@ -490,13 +487,19 @@ function fillDates(changed){
     ${table}`;
   if (el._h !== html) {
     const prevBars = $$('.wbar .col span', el).map(b => b.style.transform);
-    /* Le bandeau vert change de hauteur quand on coche : on garde la case cliquée immobile et on adoucit le changement */
-    const oldCard = $('.best-card', el), oldH = oldCard ? oldCard.offsetHeight : null;
-    const anchorSel = S.focusWeek ? `[data-week="${CSS.escape(S.focusWeek)}"]` : null;
-    const aTop = anchorSel && $(anchorSel, el) ? $(anchorSel, el).getBoundingClientRect().top : null;
-    const holdY = () => { if (aTop == null || !scrollY) return; const b = $(anchorSel, el); if (b) { const d = b.getBoundingClientRect().top - aTop; if (Math.abs(d) > .5) window.scrollBy(0, d); } };
     el.innerHTML = html; el._h = html;
-    if (!changed && oldH != null) { holdY(); const nc = $('.best-card', el); if (nc && !GM.heightFrom(nc, oldH, holdY)) holdY(); }
+    /* Hauteur du bandeau constante (la plus grande des variantes) : plus aucun saut de page quand il change de contenu */
+    const bc = $('.best-card', el);
+    if (bc) {
+      const w = bc.offsetWidth, key = w + '|' + (owner ? 1 : 0) + '|' + ids.length;
+      if (el._bcKey !== key) {
+        const pr = bc.cloneNode(false); pr.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;left:-9999px;top:0;min-height:0;width:' + w + 'px';
+        document.body.append(pr); let mh = 0;
+        [cNone, cRet(), cBest(best || {w:WEEKS[0], yes:ids.length, maybe:ids.length, no:ids.length})].forEach(v => { if (v) { pr.innerHTML = v; mh = Math.max(mh, pr.offsetHeight); } });
+        pr.remove(); el._bcKey = key; el._bcH = mh;
+      }
+      bc.style.minHeight = el._bcH + 'px';
+    }
     if (!changed && prevBars.length && GM.bars) GM.bars($$('.wbar .col span', el), prevBars);
     if (S.stampWeek) { S.stampWeek = false; const sp = $('.best-card .stamp', el); if (sp && M() && GM.stamp) GM.stamp(sp, .2); }
     if (changed && M()) {
@@ -1091,6 +1094,16 @@ function fillCompare(changed){
         <td class="num">${s.voted} / ${s.total}</td>
         <td>${chipHTML(l)}</td></tr>`;
     }).join('') + '</tbody></table>';
+  const sortOpts = [['title', 'Nom'], ['price', 'Prix total'], ['overall', 'Moyenne']].concat(cs.map(c => ['c:' + c.id, c.label]), [['hearts', 'Cœurs et veto'], ['voted', 'Ont noté']]);
+  const cards = `<div class="cmp-cards"><div class="cc-bar"><label class="cc-sort"><span>Trier par</span><select id="cmp-sort" class="input">${sortOpts.map(o => `<option value="${esc(o[0])}"${o[0] === k ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label><button type="button" class="btn cc-dir" data-sortdir aria-label="${dir > 0 ? 'Ordre croissant' : 'Ordre décroissant'}">${dir > 0 ? '↑' : '↓'}</button></div>` +
+    arr.map(l => {
+      const s = st(l.id); const see = canSee(l.id);
+      const crs = cs.map(c => `<li><span class="cc-l">${esc(c.label)}</span>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</li>`).join('');
+      return `<article class="cc" data-k="${esc(l.id)}"><button type="button" class="row-btn cc-top" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span class="grow"><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span><span class="cc-sc">${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span><small>/ 10</small>`) : `<span class="lock">${IC.lock}</span>`}</span></button>
+        <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}</div>
+        ${crs ? `<ul class="cc-crit">${crs}</ul>` : ''}</article>`;
+    }).join('') + '</div>';
+  html += cards;
   if (!arr.length) html += '<p style="padding:16px" class="muted">Aucun logement ne correspond à ces filtres.</p>';
   if (wrap._h !== html) {
     const before = flipCapture(wrap); wrap.innerHTML = html; wrap._h = html; flipPlay(wrap, before, !changed);
@@ -1883,7 +1896,7 @@ function bindStatic(){
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
     if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
-    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-pinlid],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-pinlid],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-sortdir],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
@@ -1898,11 +1911,12 @@ function bindStatic(){
     if (d.score) return setScore(d.c, +d.score);
     if (d.heart) return toggleMark(d.heart, 'heart');
     if (d.veto) return toggleMark(d.veto, 'veto');
-    if (d.pinlid) { hidePinTip(); return pinGo(d.pinlid); }
+    if (d.pinlid) { const pl = S.listings[d.pinlid]; if (S.ptype === 'touch' && pl && t.closest('#big-map') && S.mapSel === pl.dept && tipPin !== t) { showPinTip(t); return; } hidePinTip(); return pinGo(d.pinlid); }
     if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; return openListing(d.open); }
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
     if (d.dep) { if (t.closest('.fr-big')) return selectDep(d.dep); S.mapSel = d.dep; lastView = null; S.view = 'galerie'; setView('carte'); return; }
+    if (d.sortdir !== undefined) { S.cmp.dir *= -1; fillCompare(); return; }
     if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
     if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
     if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
@@ -1994,18 +2008,20 @@ function bindStatic(){
     setTimeout(() => { if ($('#li-photo-zone')) renderPhotoZone(); }, M() ? 270 : 0);
   };
   document.addEventListener('pointerup', endDrag); document.addEventListener('pointercancel', endDrag);
-  document.addEventListener('pointerover', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
+  document.addEventListener('pointerover', e => { if (e.pointerType === 'touch') return; const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('pointerout', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && !(e.relatedTarget && pin.contains(e.relatedTarget))) hidePinTip(); });
   document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
   document.addEventListener('keydown', () => { S.kbd = true; }, true);
-  document.addEventListener('pointerdown', () => { S.kbd = false; }, true);
+  document.addEventListener('pointerdown', e => { S.kbd = false; S.ptype = e.pointerType; }, true);
+  document.addEventListener('click', e => { if (S.ptype === 'touch' && !(e.target.closest && e.target.closest('#big-map .pin'))) hidePinTip(); });
   document.addEventListener('scroll', e => { const tr = e.target; if (!tr || tr.id !== 'dw-track') return; const i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth)); $$('.dw-dots span').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
   document.addEventListener('change', e => {
     const t = e.target;
     if (t.closest && t.closest('#f-listing .fgrid')) { ML.touched[t.id] = true; t.classList.remove('auto-filled'); }
     if (t.id === 'f-dept') { S.f.dept = t.value; renderView(); }
     else if (t.id === 'f-status') { S.f.status = t.value; renderView(); }
+    else if (t.id === 'cmp-sort') { const k = t.value; S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; fillCompare(); }
     else if (t.id === 'f-sort') { S.f.sort = t.value; renderView(); }
     else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l && t.value === 'reserve' && l.status !== 'reserve') S.stampAnim = l.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
     else if (t.id === 'li-shots') { addShots(t.files); t.value = ''; }
