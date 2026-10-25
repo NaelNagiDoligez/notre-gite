@@ -181,12 +181,12 @@ function skySVG(){
 }
 
 const CSS = `
-#scene{position:fixed;inset:0;z-index:-1;pointer-events:none;clip-path:inset(-240px 0);box-shadow:0 -240px 0 var(--sc-top);background:linear-gradient(180deg,var(--sc-top) 0%,var(--sc-mid) 48%,var(--sc-bot) 100%)}
+#scene{position:fixed;left:0;right:0;top:-160px;bottom:-160px;z-index:-1;pointer-events:none;overflow:hidden;background:linear-gradient(180deg,var(--sc-top) 0%,var(--sc-mid) 48%,var(--sc-bot) 100%)}
 #scene::after{content:"";position:absolute;inset:0;opacity:.07;mix-blend-mode:multiply;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .22 0 0 0 0 .15 0 0 0 1.4 -.4'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E")}
 html[data-scene="off"] #scene{display:none}
 html[data-scene="on"]{background:var(--sc-mid)}html[data-scene="on"] body{background:transparent}
 #sc-sky{position:absolute;inset:0;width:100%;height:100%}
-#sc-land{position:absolute;bottom:0;left:0;overflow:visible}
+#sc-land{position:absolute;bottom:160px;left:0;overflow:visible}
 #sc-sun,#sc-moon,.sc-glow{position:absolute;left:0;top:0;will-change:transform}
 #sc-sun{width:116px;height:116px;margin:-58px 0 0 -58px}#sc-moon{width:82px;height:82px;margin:-41px 0 0 -41px}
 .sc-glow{width:420px;height:420px;margin:-210px 0 0 -210px;border-radius:50%;background:radial-gradient(closest-side,var(--sc-sun),transparent);opacity:.32}
@@ -261,7 +261,7 @@ function update(){
   let t, body;
   if (h >= SUNRISE && h <= SUNSET) { t = (h - SUNRISE) / (SUNSET - SUNRISE); body = 'sun'; }
   else { const u = h >= SUNSET ? h - SUNSET : h + 24 - SUNSET; t = u / (24 - SUNSET + SUNRISE); body = 'moon'; }
-  const x = g.w * (0.09 + 0.82 * t), y = g.horizon - Math.sin(Math.PI * t) * span + (body === 'sun' ? 8 : 20);
+  const x = g.w * (0.09 + 0.82 * t), y = 160 + g.horizon - Math.sin(Math.PI * t) * span + (body === 'sun' ? 8 : 20);
   const low = 1 - Math.sin(Math.PI * t);               /* 1 près de l'horizon */
   if (body === 'sun') {
     sunEl.style.display = ''; moonEl.style.display = 'none';
@@ -274,6 +274,7 @@ function update(){
     glowEl.style.transform = `translate3d(${x}px,${y}px,0)`; glowEl.style.opacity = (dark ? .16 : .1).toFixed(2);
     root.style.setProperty('--sc-sun', '#FFF1C2');
   }
+  let tc = document.querySelector('meta[name=theme-color]'); if (!tc) { tc = document.createElement('meta'); tc.name = 'theme-color'; document.head.append(tc); } tc.content = p.top;
   root.dataset.sky = n > 0.55 ? 'night' : (h < 9 || h > 18 ? 'dusk' : 'day');
 }
 
