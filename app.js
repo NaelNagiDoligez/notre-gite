@@ -1014,7 +1014,7 @@ function showPinTip(pin){
   let t = $('#map-tip'); if (!t) { t = document.createElement('div'); t.id = 'map-tip'; t.className = 'map-tip'; t.setAttribute('aria-hidden', 'true'); wrap.append(t); }
   const zoomed = S.mapSel === l.dept; const sc = st(l.id);
   t.innerHTML = `<span class="mt-ph">${photoHTML(l)}</span><span class="mt-b"><strong>${esc(l.title)}</strong><span>${esc([l.commune, fmtPrice(num(l.price))].filter(Boolean).join(' · '))}</span><em>${zoomed ? 'Ouvrir la fiche →' : 'Zoomer sur le département →'}</em></span>`;
-  tipPin = pin;
+  tipPin = pin; t.dataset.pinlid = l.id; t.classList.toggle('tap', S.ptype === 'touch');
   const wr = wrap.getBoundingClientRect(), dr = $('.pin-dot', pin).getBoundingClientRect();
   const tw = t.offsetWidth, th = t.offsetHeight;
   let x = dr.left + dr.width / 2 - wr.left; x = Math.max(tw / 2 + 8, Math.min(wr.width - tw / 2 - 8, x));
@@ -1024,6 +1024,7 @@ function showPinTip(pin){
 }
 function selectDep(c){
   hidePinTip();
+  if (S.mapSel === c) return;
   S.mapSel = c;
   $$('#big-map .dep').forEach(p => p.classList.toggle('sel', p.dataset.dep === c));
   applyZoom(true); fillMapSide();
@@ -1033,19 +1034,20 @@ function mlItem(l){
   return `<li data-k="${esc(l.id)}"><button type="button" class="ml-item" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span class="grow"><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc([l.commune, fmtPrice(num(l.price))].filter(Boolean).join(' · '))}</span></span>${see && s.overall != null ? `<span class="num big-num">${fmtScore(s.overall)}</span>` : ''}</button></li>`;
 }
 function fillMapSide(){
-  const el = $('#map-side'); if (!el) return;
+  const el = $('#map-side'); if (!el) return; let html = '';
   const all = listingsArr();
   if (S.mapSel) {
     const d = DEP[S.mapSel]; const here = all.filter(l => l.dept === S.mapSel);
-    el.innerHTML = `<div><p class="eyebrow">Département ${esc(S.mapSel)}</p><h2 class="h2">${esc(d ? d.n : S.mapSel)}</h2></div>` +
+    html = `<div><p class="eyebrow">Département ${esc(S.mapSel)}</p><h2 class="h2">${esc(d ? d.n : S.mapSel)}</h2></div>` +
       (here.length ? `<ul class="ml">${here.map(mlItem).join('')}</ul>` : '<p class="muted">Aucun logement ici pour l’instant.</p>') +
       `<button type="button" class="btn btn-ghost" data-act="map-reset">Revenir à toute la France</button>`;
   } else {
     const by = {}; all.forEach(l => { const k = l.dept || '?'; (by[k] = by[k] || []).push(l); });
     const keys = Object.keys(by).sort((a, b) => by[b].length - by[a].length || a.localeCompare(b, 'fr', {numeric:true}));
-    el.innerHTML = `<div><p class="eyebrow">Toute la France</p><h2 class="h2">${all.length ? plural(all.length, 'logement') + ' dans ' + plural(keys.length, 'département') : 'Aucun logement'}</h2></div>` +
+    html = `<div><p class="eyebrow">Toute la France</p><h2 class="h2">${all.length ? plural(all.length, 'logement') + ' dans ' + plural(keys.length, 'département') : 'Aucun logement'}</h2></div>` +
       (keys.length ? `<ul class="ml">${keys.map(k => `<li><button type="button" class="ml-item" ${DEP[k] ? `data-pick-dep="${esc(k)}"` : 'disabled'}><span class="grow"><span class="tt">${esc(k === '?' ? 'Lieu à préciser' : depLabel(k))}</span><br><span class="sub">${esc(by[k].map(l => l.title).slice(0, 3).join(', '))}${by[k].length > 3 ? '…' : ''}</span></span><span class="num big-num">${by[k].length}</span></button></li>`).join('')}</ul>` : '<p class="muted">Les logements ajoutés apparaîtront ici et sur la carte.</p>');
   }
+  if (el._h !== html) { el.innerHTML = html; el._h = html; }
 }
 
 /* ---------- Comparateur ---------- */
@@ -1911,7 +1913,7 @@ function bindStatic(){
     if (d.score) return setScore(d.c, +d.score);
     if (d.heart) return toggleMark(d.heart, 'heart');
     if (d.veto) return toggleMark(d.veto, 'veto');
-    if (d.pinlid) { const pl = S.listings[d.pinlid]; if (S.ptype === 'touch' && pl && t.closest('#big-map') && S.mapSel === pl.dept && tipPin !== t) { showPinTip(t); return; } hidePinTip(); return pinGo(d.pinlid); }
+    if (d.pinlid) { const pl = S.listings[d.pinlid]; if (S.ptype === 'touch' && pl && t.id !== 'map-tip' && t.closest('#big-map') && S.mapSel === pl.dept && tipPin !== t) { showPinTip(t); return; } hidePinTip(); return pinGo(d.pinlid); }
     if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; return openListing(d.open); }
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
@@ -2011,7 +2013,7 @@ function bindStatic(){
   document.addEventListener('pointerover', e => { if (e.pointerType === 'touch') return; const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && pin !== tipPin) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('pointerout', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && !(e.relatedTarget && pin.contains(e.relatedTarget))) hidePinTip(); });
   document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
-  document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
+  document.addEventListener('focusout', e => { if (S.ptype === 'touch') return; if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
   document.addEventListener('keydown', () => { S.kbd = true; }, true);
   document.addEventListener('pointerdown', e => { S.kbd = false; S.ptype = e.pointerType; }, true);
   document.addEventListener('click', e => { if (S.ptype === 'touch' && !(e.target.closest && e.target.closest('#big-map .pin'))) hidePinTip(); });

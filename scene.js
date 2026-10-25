@@ -139,6 +139,7 @@ function landSVG(){
     <g transform="translate(1528 604)"><ellipse cx="0" cy="2" rx="54" ry="13" fill="var(--sc-near)" style="${L}"/>
       <path d="M-11 0 L-8 -78 L8 -78 L11 0Z" fill="#FFFBF3" style="${L}"/><path d="M-9.8 -22 H9.8 L9 -36 H-9 Z M-8.6 -52 H8.6 L8 -64 H-8Z" fill="var(--sc-roof)"/>
       <rect x="-9" y="-92" width="18" height="14" rx="2" fill="#FFE9A6" style="${L}"/><path d="M-12 -92 L0 -104 L12 -92Z" fill="var(--sc-roof)" style="${L}"/></g>
+    <path d="M-2400 899 H4200 V1900 H-2400Z" fill="var(--sc-near)"/><path d="M780 899 H4200 V1900 H780Z" fill="var(--sc-sand)"/>
     <path d="M780 900 L780 800 C 900 780 1090 762 1190 772 S 1470 764 4200 748 L4200 900Z" fill="var(--sc-sand)" style="${L};stroke-width:1.6"/>
     <path d="M900 880 C 1000 850 1150 840 1260 850 S 1500 846 4200 830" fill="none" style="${L};stroke-opacity:.18;stroke-width:1.4"/>
     <path d="M-2400 900 L-2400 690 C 150 640 300 650 450 690 S 700 706 900 770 L900 900Z" fill="var(--sc-hill2)" style="${L}"/>
@@ -180,7 +181,7 @@ function skySVG(){
 }
 
 const CSS = `
-#scene{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:linear-gradient(180deg,var(--sc-top) 0%,var(--sc-mid) 48%,var(--sc-bot) 100%)}
+#scene{position:fixed;inset:0;z-index:-1;pointer-events:none;clip-path:inset(-240px 0);box-shadow:0 -240px 0 var(--sc-top);background:linear-gradient(180deg,var(--sc-top) 0%,var(--sc-mid) 48%,var(--sc-bot) 100%)}
 #scene::after{content:"";position:absolute;inset:0;opacity:.07;mix-blend-mode:multiply;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .22 0 0 0 0 .15 0 0 0 1.4 -.4'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E")}
 html[data-scene="off"] #scene{display:none}
 html[data-scene="on"]{background:var(--sc-mid)}html[data-scene="on"] body{background:transparent}
