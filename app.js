@@ -77,8 +77,13 @@ function relTime(ts){
 const depLabel = c => DEP[c] ? DEP[c].n + ' (' + c + ')' : (c === 'autre' ? 'Hors métropole' : (c || ''));
 const placeOf = l => [l.commune, depLabel(l.dept)].filter(Boolean).join(' · ') || 'Lieu à préciser';
 let SB = null;
-const photoUrl = id => SB ? SB.storage.from('photos').getPublicUrl(id).data.publicUrl : '';
-const PHOTO_ID = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.(?:jpg|png|webp)$/;
+/* Une photo est soit un chemin du bucket « photos », soit l'adresse https d'une image hébergée ailleurs. */
+const EXT_PHOTO = /^https:\/\/[^\s"'<>\\]{6,1900}$/;
+const isExtPhoto = id => EXT_PHOTO.test(id);
+const photoUrl = id => isExtPhoto(id) ? id : (SB ? SB.storage.from('photos').getPublicUrl(id).data.publicUrl : '');
+const PHOTO_STORE = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.(?:jpg|png|webp)$/;
+const PHOTO_ID = { test: id => typeof id === 'string' && (PHOTO_STORE.test(id) || isExtPhoto(id)) };
+const storedOnly = ids => ids.filter(id => PHOTO_STORE.test(id));
 
 /* ---------- Mouvement ---------- */
 const reducedPref = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -224,7 +229,7 @@ const MAX_PH = 6;
 function photoHTML(l, extra){
   const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
   const ps = photosOf(l);
-  if (ps.length) return `<div class="ph ${tint}"><img src="${esc(photoUrl(ps[0]))}" alt="" loading="lazy" data-fb>${extra || ''}${extra !== undefined && ps.length > 1 ? `<span class="ph-count" aria-label="${ps.length} photos">${ps.length} photos</span>` : ''}</div>`;
+  if (ps.length) return `<div class="ph ${tint}"><img src="${esc(photoUrl(ps[0]))}" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb>${extra || ''}${extra !== undefined && ps.length > 1 ? `<span class="ph-count" aria-label="${ps.length} photos">${ps.length} photos</span>` : ''}</div>`;
   return `<div class="ph ${tint}">${IC.house}${extra || ''}</div>`;
 }
 const DEPBB = {};
@@ -1215,7 +1220,7 @@ function dwPhotoHTML(l){
   const ps = photosOf(l); if (ps.length < 2) return photoHTML(l);
   const tint = 'ph' + (hashN(l.id || 'x', 6) + 1);
   const ar = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
-  return `<div class="dw-track" id="dw-track" tabindex="0" role="group" aria-label="Photos du logement">${ps.map((p, i) => `<div class="ph ${tint}"><img src="${esc(photoUrl(p))}" alt="Photo ${i + 1} sur ${ps.length}"${i ? ' loading="lazy"' : ''} data-fb></div>`).join('')}</div>
+  return `<div class="dw-track" id="dw-track" tabindex="0" role="group" aria-label="Photos du logement">${ps.map((p, i) => `<div class="ph ${tint}"><img src="${esc(photoUrl(p))}" alt="Photo ${i + 1} sur ${ps.length}"${i ? ' loading="lazy"' : ''} referrerpolicy="no-referrer" data-fb></div>`).join('')}</div>
     <button type="button" class="dw-nav dw-prev" data-pnav="-1" aria-label="Photo précédente">${ar('M15 5l-7 7 7 7')}</button>
     <button type="button" class="dw-nav dw-next" data-pnav="1" aria-label="Photo suivante">${ar('M9 5l7 7-7 7')}</button>
     <div class="dw-dots" aria-hidden="true">${ps.map((_, i) => `<span${i ? '' : ' class="on"'}></span>`).join('')}</div>`;
@@ -1449,13 +1454,27 @@ function renderShots(){
   const ST = {wait:'En attente', busy:'Lecture…', text:'Texte lu', photo:'Photo', error:'Illisible'};
   el.innerHTML = ML.shots.map((s, i) => `<div class="shot"><img src="${s.url}" alt="Capture ${i + 1}"><div class="sa"><span class="shot-st shot-${s.state || 'wait'}">${ST[s.state] || ''}</span><label class="check-inline"><input type="checkbox" data-shotph="${i}"${ML.photos.some(p => p.shot === s) ? ' checked' : ''}>Photo de la fiche</label><button type="button" class="link-btn" data-rmshot="${i}">Retirer</button></div></div>`).join('');
 }
-const phSrc = p => p.type === 'existing' ? photoUrl(p.id) : p.type === 'shot' ? p.shot.url : p.url;
+function addPhotoUrls(){
+  const inp = $('#li-photo-url'); if (!inp) return;
+  const urls = inp.value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
+  if (!urls.length) { inp.focus(); return; }
+  let ok = 0, bad = 0;
+  urls.forEach(u => {
+    if (!isExtPhoto(u) || ML.photos.some(p => p.type === 'existing' && p.id === u)) { bad++; return; }
+    if (ML.photos.length >= MAX_PH) { bad++; return; }
+    ML.photos.push({type:'existing', id:u}); ok++;
+  });
+  if (bad) toast(ok ? 'Certaines adresses ont été ignorées (déjà ajoutées, invalides ou limite de ' + MAX_PH + ' photos).' : 'Adresse invalide : elle doit commencer par https://');
+  renderShots(); renderPhotoZone();
+}
+const phSrc = p =>p.type === 'existing' ? photoUrl(p.id) : p.type === 'shot' ? p.shot.url : p.url;
 function renderPhotoZone(){
   const el = $('#li-photo-zone'); if (!el) return;
-  const list = ML.photos.map((p, i) => `<div class="ph-item" data-pi="${i}"><img src="${esc(phSrc(p))}" alt="Photo ${i + 1}" draggable="false"${p.type === 'existing' ? ' data-fb' : ''}>${i === 0 ? '<span class="ph-cover">Couverture</span>' : ''}<button type="button" class="ph-rm" data-rmphoto="${i}" aria-label="Retirer la photo ${i + 1}">×</button></div>`).join('');
+  const list = ML.photos.map((p, i) => `<div class="ph-item" data-pi="${i}"><img src="${esc(phSrc(p))}" alt="Photo ${i + 1}" draggable="false" referrerpolicy="no-referrer"${p.type === 'existing' ? ' data-fb' : ''}>${i === 0 ? '<span class="ph-cover">Couverture</span>' : ''}<button type="button" class="ph-rm" data-rmphoto="${i}" aria-label="Retirer la photo ${i + 1}">×</button></div>`).join('');
   const full = ML.photos.length >= MAX_PH;
   el.innerHTML = `${ML.photos.length ? `<div class="ph-list">${list}</div>` : `<div class="photo-prev"><div class="ph ph${hashN(ML.editId || 'new', 6) + 1}">${IC.house}</div></div>`}<div class="sec-gap" style="gap:8px">
     ${ML.photos.length ? `<span class="hint">${ML.photos.length} / ${MAX_PH} photos. Glisse-les pour changer l’ordre : la première sert de couverture.</span>` : '<span class="hint">Sans photo, la fiche affiche un dessin. Tu peux cocher « Photo de la fiche » sur tes captures ci-dessus, ou ajouter des photos.</span>'}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="url" id="li-photo-url" class="input"placeholder="Adresse d’une photo (https://…)" aria-label="Adresse d’une photo" style="flex:1 1 220px;min-width:0"><button type="button" class="btn btn-sm${full ? ' is-off' : ''}" data-addphurl="1">Ajouter par adresse</button></div>
     ${S.assets ? `<div><input type="file" id="li-photo-file" accept="image/png,image/jpeg,image/webp" multiple class="sr-only"><label for="li-photo-file" class="btn btn-sm${full ? ' is-off' : ''}">${ML.photos.length ? 'Ajouter des photos' : 'Choisir des photos'}</label></div>` : '<span class="hint">L’ajout de photo n’est pas disponible avec ton accès.</span>'}</div>`;
 }
 function addShots(files){
@@ -1663,7 +1682,7 @@ async function saveListing(){
   const id = ML.editId || S.db.collection('listings').doc().id;
   try {
     await writeDoc('listings/' + id, data);
-    if (prev && S.assets) photosOf(prev).filter(id => !photos.includes(id)).forEach(id => S.assets.delete(id).catch(() => {}));
+    if (prev && S.assets) storedOnly(photosOf(prev)).filter(id => !photos.includes(id)).forEach(id => S.assets.delete(id).catch(() => {}));
     closeModal();
     toast(prev ? 'Fiche mise à jour' : 'Logement ajouté au carnet');
     if (!prev) { S.highlight = id; if (S.view !== 'galerie') setView('galerie'); setTimeout(() => { S.highlight = null; schedule(); }, 2600); }
@@ -1893,6 +1912,7 @@ function bindStatic(){
   $('#rv-skip').addEventListener('click', () => { if (revealSkip) revealSkip(); });
   $('#rv-done').addEventListener('click', closeReveal);
 
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target && e.target.id === 'li-photo-url') { e.preventDefault(); addPhotoUrls(); } });
   document.addEventListener('error', e => { const t = e.target; if (t && t.tagName === 'IMG' && t.hasAttribute('data-fb')) { const s = document.createElement('span'); s.innerHTML = IC.house; t.replaceWith(s.firstChild); } }, true);
 
   document.addEventListener('click', e => {
@@ -1922,6 +1942,7 @@ function bindStatic(){
     if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
     if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
     if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
+    if (d.addphurl) { addPhotoUrls(); return; }
     if (d.rmphoto !== undefined) { const p = ML.photos[+d.rmphoto]; if (p && p.type === 'file') URL.revokeObjectURL(p.url); ML.photos.splice(+d.rmphoto, 1); renderShots(); renderPhotoZone(); return; }
     if (d.pnav !== undefined) { const tr = $('#dw-track'); if (tr) tr.scrollBy({left:+d.pnav * tr.clientWidth, behavior:M() ? 'smooth' : 'auto'}); return; }
     if (d.rmshot) { const i = +d.rmshot; const s = ML.shots[i]; if (s) URL.revokeObjectURL(s.url); ML.shots.splice(i, 1); if (s) ML.photos = ML.photos.filter(p => p.shot !== s); renderShots(); renderPhotoZone(); return; }
@@ -1934,7 +1955,7 @@ function bindStatic(){
       case 'map-reset': return selectDep(null);
       case 'del': S.dwConfirm = true; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); { const b = $('[data-act="del-cancel"]'); if (b) b.focus(); } return;
       case 'del-cancel': S.dwConfirm = false; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); return;
-      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && S.assets) photosOf(l).forEach(pid => S.assets.delete(pid).catch(() => {})); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
+      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && S.assets) storedOnly(photosOf(l)).forEach(pid => S.assets.delete(pid).catch(() => {})); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
       case 'close-votes': S.confirmClose = true; return fillPodium();
       case 'close-cancel': S.confirmClose = false; return fillPodium();
       case 'close-confirm': S.confirmClose = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:true, closedAt:Date.now()})); return;
