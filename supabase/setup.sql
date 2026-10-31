@@ -100,3 +100,15 @@ insert into public.docs (path, collection, data) values
 }'::jsonb),
 ('trip/main', 'trip', '{"destination": "France", "periode": "Été, dates à définir", "budget": ""}'::jsonb)
 on conflict (path) do nothing;
+
+-- Quand une personne est supprimée de Authentication > Users, sa fiche « inscrit » et ses votes disparaissent aussi.
+create or replace function public.cleanup_deleted_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.docs where path in ('members/' || old.id::text, 'votes/' || old.id::text);
+  return old;
+end $$;
+revoke all on function public.cleanup_deleted_user() from public, anon, authenticated;
+drop trigger if exists on_auth_user_deleted on auth.users;
+create trigger on_auth_user_deleted after delete on auth.users
+  for each row execute function public.cleanup_deleted_user();
