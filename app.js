@@ -133,15 +133,20 @@ function setPref(k, v){
   if (window.GiteScene) GiteScene.refresh();
 }
 function anim(el, kf, opts){ if (!M() || !el || !el.animate) return null; try { return el.animate(kf, opts); } catch (e) { return null; } }
-function flipCapture(root){ const m = new Map(); if (!root) return m; $$('[data-k]', root).forEach(el => m.set(el.dataset.k, el.getBoundingClientRect())); return m; }
+function flipCapture(root){ const m = new Map(); if (!root) return m; $$('[data-k]', root).forEach(el => { if (el.getClientRects().length) m.set(el.dataset.k, el.getBoundingClientRect()); }); return m; }
 function flipPlay(root, before, enter, gm){
   if (!root || !M()) return;
   let n = 0; const fresh = [];
   $$('[data-k]', root).forEach(el => {
+    if (!el.getClientRects().length) return;
     const b = before.get(el.dataset.k);
     if (b) {
       const r = el.getBoundingClientRect(); const dx = b.left - r.left, dy = b.top - r.top;
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) anim(el, [{transform:`translate(${dx}px,${dy}px)`}, {transform:'none'}], {duration:480, easing:EASE_IO});
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        /* Les lignes qui se déplacent le plus passent au-dessus des autres, sans disparaître derrière elles */
+        const a = anim(el, [{transform:`translate(${dx}px,${dy}px)`}, {transform:'none'}], {duration:480, easing:EASE_IO});
+        if (a && el.tagName === 'TR') { el.classList.add('fl-row'); el.style.position = 'relative'; el.style.zIndex = String(2 + Math.min(40, Math.round(Math.abs(dy) / 40))); const done = () => { el.classList.remove('fl-row'); el.style.zIndex = ''; el.style.position = ''; }; a.onfinish = done; a.oncancel = done; }
+      }
     } else if (enter !== false) {
       if (gm && GM.enterCards) fresh.push(el);
       else anim(el, [{opacity:0, transform:'translateY(24px) scale(.95) rotate(-0.8deg)'}, {opacity:1, transform:'none'}], {duration:600, delay:Math.min(n++, 10) * 60, easing:EASE_OUT, fill:'backwards'});
