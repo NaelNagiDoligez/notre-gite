@@ -234,7 +234,7 @@ function ranking(){
     return (a.l.createdAt || 0) - (b.l.createdAt || 0);
   });
 }
-/* ---------- Prix par nuit et par personne ---------- */
+/* ---------- Prix par nuit ---------- */
 const MOIS3 = ['jan','fév','mar','avr','mai','jui','jul','aoû','sep','oct','nov','déc'];
 function monthIdx(w){ if (!w) return -1; w = w.toLowerCase().replace('fev', 'fév').replace('aou', 'aoû').replace('dec', 'déc'); if (/^juil/.test(w)) return 6; if (/^juin/.test(w)) return 5; return MOIS3.findIndex(m => w.startsWith(m)); }
 function nightsOf(l){
@@ -249,8 +249,7 @@ function nightsOf(l){
   }
   return null;
 }
-const travelers = () => int((S.trip || {}).voyageurs) || memberIds().length || null;
-function perPN(l){ const p = num(l.price), n = nightsOf(l), v = travelers(); return p != null && n && v ? p / n / v : null; }
+function perPN(l){ const p = num(l.price), n = nightsOf(l); return p != null && n ? p / n : null; }
 const fmtEur = n => n == null ? '–' : new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(n);
 function statusOf(l){ const ss = statuses(); let i = ss.findIndex(s => s.id === l.status); if (i < 0) i = 0; return {i, s:ss[i]}; }
 const chipHTML = l => { const o = statusOf(l); return `<span class="chip st${o.i % 4 + 1}">${esc(o.s.label)}</span>`; };
@@ -800,20 +799,20 @@ function renderTrip(force){
       ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
       : `<span class="tf-v">${esc(v || ph)}</span>`;
     return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
-  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span>${pen ? `<button type="button" class="tf-sub tf-edit" data-trip="voyageurs" title="Nombre de personnes qui partent (pour le prix par personne)">${t.voyageurs ? esc(plural(int(t.voyageurs), 'voyageur')) : 'Combien partent ?'}${IC.pen}</button>` : (t.voyageurs ? `<span class="tf-sub">${esc(plural(int(t.voyageurs), 'voyageur'))}</span>` : '')}</div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
   if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
 }
 function editTrip(k){
   const btn = $(`[data-trip="${k}"]`); if (!btn) return;
   const cur = (S.trip || {})[k] || '';
   const inp = document.createElement('input');
-  inp.id = 'trip-in-' + k; inp.value = cur; inp.maxLength = 80; if (k === 'voyageurs') { inp.inputMode = 'numeric'; inp.placeholder = 'ex. 8'; inp.setAttribute('aria-label', 'Nombre de voyageurs'); } inp.setAttribute('aria-labelledby', 'tl-' + k);
+  inp.id = 'trip-in-' + k; inp.value = cur; inp.maxLength = 80; inp.setAttribute('aria-labelledby', 'tl-' + k);
   inp.placeholder = (TRIP_FIELDS.find(f => f[0] === k) || [])[2] || '';
   btn.replaceWith(inp); inp.focus(); inp.select();
   let done = false;
   const fin = save => {
     if (done) return; done = true;
-    let v = inp.value.trim(); if (k === 'voyageurs') v = int(v) ? String(Math.min(40, int(v))) : '';
+    let v = inp.value.trim();
     if (save && v !== cur) {
       S.trip = Object.assign({}, S.trip, {[k]:v, updatedAt:Date.now()});
       writeDoc('trip/main', S.trip).then(() => toast('Voyage mis à jour'));
@@ -1192,7 +1191,7 @@ function fillCompare(changed){
   arr.sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; if (typeof va === 'string') return dir * va.localeCompare(vb, 'fr'); return dir * (va - vb); });
   const wrap = $('#cmp-wrap');
   if (!all.length) { wrap.innerHTML = `<div style="padding:24px">${emptyHTML()}</div>`; wrap._h = null; return; }
-  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${sortTh('ppn', 'Par nuit et pers.')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
+  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${sortTh('ppn', 'Par nuit')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
     arr.map(l => {
       const s = st(l.id); const see = canSee(l.id);
       return `<tr data-k="${esc(l.id)}"><td class="c-name"><button type="button" class="row-btn" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span></button></td>
@@ -1204,13 +1203,13 @@ function fillCompare(changed){
         <td class="num">${s.voted} / ${s.total}</td>
         <td>${chipHTML(l)}${dispoChip(l)}</td></tr>`;
     }).join('') + '</tbody></table>';
-  const sortOpts = [['title', 'Nom'], ['price', 'Prix total'], ['ppn', 'Prix par nuit et par personne'], ['overall', 'Moyenne']].concat(cs.map(c => ['c:' + c.id, c.label]), [['hearts', 'Cœurs et veto'], ['voted', 'Ont noté']]);
+  const sortOpts = [['title', 'Nom'], ['price', 'Prix total'], ['ppn', 'Prix par nuit'], ['overall', 'Moyenne']].concat(cs.map(c => ['c:' + c.id, c.label]), [['hearts', 'Cœurs et veto'], ['voted', 'Ont noté']]);
   const cards = `<div class="cmp-cards"><div class="cc-bar"><label class="cc-sort"><span>Trier par</span><select id="cmp-sort" class="input">${sortOpts.map(o => `<option value="${esc(o[0])}"${o[0] === k ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label><button type="button" class="btn cc-dir" data-sortdir aria-label="${dir > 0 ? 'Ordre croissant' : 'Ordre décroissant'}">${dir > 0 ? '↑' : '↓'}</button></div>` +
     arr.map(l => {
       const s = st(l.id); const see = canSee(l.id);
       const crs = cs.map(c => `<li><span class="cc-l">${esc(c.label)}</span>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</li>`).join('');
       return `<article class="cc" data-k="${esc(l.id)}"><button type="button" class="row-btn cc-top" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span class="grow"><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span><span class="cc-sc">${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span><small>/ 10</small>`) : `<span class="lock">${IC.lock}</span>`}</span></button>
-        <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${perPN(l) != null ? `<span class="small muted">${esc(fmtEur(perPN(l)))} / nuit / pers.</span>` : ''}${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}${dispoChip(l)}</div>
+        <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${perPN(l) != null ? `<span class="small muted">${esc(fmtEur(perPN(l)))} / nuit</span>` : ''}${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}${dispoChip(l)}</div>
         ${crs ? `<ul class="cc-crit">${crs}</ul>` : ''}</article>`;
     }).join('') + '</div>';
   html += cards;
@@ -1364,7 +1363,7 @@ function dwHead(l){
 function dwFacts(l){
   const s = st(l.id);
   const nn = nightsOf(l), ppn = perPN(l);
-  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Par nuit et par personne', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn) + ' (' + plural(travelers(), 'voyageur') + ')'], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
+  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Prix par nuit', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn)], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
   const eq = (l.equipments || []);
   const wk = (S.trip || {}).week && WEEKS.find(x => x.id === S.trip.week); const dv = dispoOf(l);
   const dispoBlock = wk ? `<div class="dispo"><span class="dispo-q">Libre la semaine retenue (${esc(weekLabel(wk))}) ?</span>${canEdit() ? `<div class="dispo-b" role="group" aria-label="Disponibilité">${[['oui', 'Oui'], ['non', 'Non'], ['', 'À vérifier']].map(([k, t]) => `<button type="button" class="btn btn-sm${(dv || '') === k ? ' on' : ''}" data-dispo="${k}" aria-pressed="${(dv || '') === k}">${t}</button>`).join('')}</div>` : `<strong>${dv === 'oui' ? 'Oui' : dv === 'non' ? 'Non' : 'À vérifier'}</strong>`}${l.dispo && l.dispo.week === wk.id && l.dispo.by ? `<span class="small muted">Vérifié par ${esc(nameOf(l.dispo.by))} ${esc(relTime(l.dispo.at))}</span>` : ''}</div>` : '';

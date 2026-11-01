@@ -57,7 +57,14 @@ drop policy if exists "modification" on public.docs;
 create policy "modification" on public.docs for update to authenticated
   using (private.can_write(path)) with check (private.can_write(path) and collection = split_part(path, '/', 1));
 drop policy if exists "suppression" on public.docs;
-create policy "suppression" on public.docs for delete to authenticated using (private.can_write(path));
+-- Suppression : un logement par un organisateur seulement, un commentaire par son auteur ou un organisateur.
+create policy "suppression" on public.docs for delete to authenticated using (
+  private.can_write(path) and case collection
+    when 'listings' then private.is_admin()
+    when 'comments' then private.is_admin() or data->>'by' = auth.uid()::text
+    else true
+  end
+);
 
 drop policy if exists "lecture admins" on public.admins;
 create policy "lecture admins" on public.admins for select to authenticated using (true);

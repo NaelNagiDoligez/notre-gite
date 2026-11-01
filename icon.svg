@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A9D6E8"/><stop offset=".55" stop-color="#DCEBE7"/><stop offset="1" stop-color="#F6EFE0"/></linearGradient>
+  <radialGradient id="glow" cx="760" cy="250" r="260" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE9A6" stop-opacity=".9"/><stop offset="1" stop-color="#FFE9A6" stop-opacity="0"/></radialGradient>
+  <filter id="wob" x="-3%" y="-3%" width="106%" height="106%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="4" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="9"/></filter>
+</defs>
+<rect width="1024" height="1024" fill="url(#sky)"/>
+<circle cx="760" cy="250" r="260" fill="url(#glow)"/>
+<g filter="url(#wob)" stroke="#3B2F25" stroke-width="14" stroke-linejoin="round" stroke-linecap="round">
+  <!-- soleil -->
+  <g transform="translate(760 250)">
+    <g stroke="#E9A23B" stroke-width="16">
+      <path d="M0 -150 V-118 M0 118 V150 M-150 0 H-118 M118 0 H150 M-106 -106 L-84 -84 M84 84 L106 106 M-106 106 L-84 84 M84 -84 L106 -106"/>
+    </g>
+    <circle r="82" fill="#FFD04A"/>
+  </g>
+  <!-- nuage -->
+  <path d="M120 318 C80 318 80 262 130 262 C132 214 202 202 228 240 C252 196 336 204 340 258 C392 246 418 300 384 330 Z" fill="#FFFFFF" stroke-width="11"/>
+  <!-- oiseaux -->
+  <path d="M470 200 q22 -22 44 0 q22 -22 44 0 M560 270 q16 -16 32 0 q16 -16 32 0" fill="none" stroke-width="10"/>
+  <!-- montagnes -->
+  <path d="M-30 640 L150 430 L250 520 L380 360 L520 560 L600 500 L700 640 Z" fill="#AEC7D2"/>
+  <path d="M380 360 L332 430 L360 418 L382 446 L408 420 L436 432 Z M150 430 L118 468 L142 462 L160 480 L178 462 Z" fill="#FFFFFF" stroke-width="10"/>
+  <!-- mer -->
+  <path d="M420 640 H1060 V860 H420 Z" fill="#7FBFD0"/>
+  <path d="M640 700 q20 -16 40 0 t40 0 t40 0 M820 760 q20 -16 40 0 t40 0 t40 0 M680 810 q20 -16 40 0 t40 0" fill="none" stroke="#FFFFFF" stroke-width="10" opacity=".9"/>
+  <!-- voilier -->
+  <g transform="translate(880 650)"><path d="M0 0 V-120 L62 -10 Z" fill="#FFFBF3" stroke-width="10"/><path d="M-40 6 H70 L52 30 H-24 Z" fill="#B8502D" stroke-width="10"/></g>
+  <!-- plage -->
+  <path d="M560 1060 L560 880 C 640 850 760 830 860 840 S 1000 836 1060 826 L1060 1060 Z" fill="#F2E0B6"/>
+  <!-- parasol -->
+  <g transform="translate(880 900)"><path d="M0 0 V90" stroke-width="10"/><path d="M-80 4 Q0 -70 80 4 Q40 -16 0 4 Q-40 -16 -80 4 Z" fill="#E9684B" stroke-width="10"/><path d="M-26 -6 Q0 -60 0 4 Q0 -60 26 -6" fill="#FFFBF3" stroke-width="8"/></g>
+  <!-- colline -->
+  <path d="M-40 1060 L-40 700 C 80 640 260 620 420 680 C 520 716 600 800 640 1060 Z" fill="#A2BF74"/>
+  <path d="M-40 1060 L-40 880 C 120 840 300 860 470 940 L520 1060 Z" fill="#8AA85C"/>
+  <!-- sapins -->
+  <g fill="#6A925A" stroke-width="10"><path d="M110 690 L70 770 H150 Z M110 640 L80 700 H140 Z"/><path d="M110 770 V800"/></g>
+  <!-- maison -->
+  <g transform="translate(330 650)">
+    <path d="M90 -170 V-235 H130 V-140" fill="#F6E9D0"/>
+    <rect x="-130" y="-120" width="260" height="190" rx="6" fill="#FFFBF3"/>
+    <path d="M-170 -110 L0 -250 L170 -110 Z" fill="#B8502D"/>
+    <rect x="-38" y="-6" width="76" height="76" rx="6" fill="#B8502D"/>
+    <circle cx="20" cy="34" r="5" fill="#3B2F25" stroke="none"/>
+    <rect x="-108" y="-80" width="56" height="54" rx="5" fill="#FFD27A"/>
+    <path d="M-80 -80 V-26 M-108 -53 H-52" fill="none" stroke-width="9"/>
+    <rect x="52" y="-80" width="56" height="54" rx="5" fill="#FFD27A"/>
+    <path d="M80 -80 V-26 M52 -53 H108" fill="none" stroke-width="9"/>
+    <path d="M-150 70 H150" fill="none"/>
+  </g>
+  <!-- fleurs -->
+  <g stroke="none"><circle cx="190" cy="960" r="10" fill="#FFD04A"/><circle cx="260" cy="1000" r="9" fill="#E9684B"/><circle cx="90" cy="980" r="10" fill="#FFFBF3"/><circle cx="400" cy="990" r="9" fill="#FFD04A"/><circle cx="330" cy="940" r="8" fill="#FFFBF3"/></g>
+</g>
+</svg>
