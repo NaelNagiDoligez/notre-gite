@@ -10,6 +10,8 @@ try { var m = localStorage.getItem('gite-motion'); if (m ? m === 'on' : !matchMe
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="description" content="Carnet partagé pour proposer des gîtes, les noter ensemble et choisir où partir cet été.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B8502D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Notre gîte">
 <title>Notre gîte d'été</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -679,6 +681,48 @@ html{touch-action:pan-x pan-y}
   input,select,textarea,.input{font-size:16px}
   .gear-pop{max-width:calc(100vw - 32px)}
 }
+.pod-note{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:14px;color:var(--muted)}
+.pod-note svg{flex:0 0 auto;margin-top:2px;color:var(--danger)}
+/* Lot 7 : onglets toujours accessibles, cibles tactiles, dates lisibles sur téléphone */
+.tl-s{display:none}
+.fab{display:none}
+.bar{position:sticky;top:0;z-index:40;margin-inline:-16px;padding:10px 16px 12px;background:color-mix(in srgb,var(--paper) 82%,transparent);-webkit-backdrop-filter:blur(12px) saturate(1.2);backdrop-filter:blur(12px) saturate(1.2);border-radius:0 0 18px 18px}
+html[data-scene="off"] .bar{background:color-mix(in srgb,var(--paper) 92%,transparent)}
+.dt tbody th,.dt thead th:first-child,.dt tfoot th{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:1px 0 0 var(--line)}
+.pin-hit{fill:transparent;stroke:none}
+.news-t{margin:0}
+.news-tg{display:none}
+@media (max-width:640px){
+  .tabs,.tab-ind{flex-wrap:nowrap;width:100%;gap:4px}
+  .tab{padding:0 2px;font-size:13.5px;min-height:42px;flex:1 1 0;min-width:0;white-space:nowrap}
+  .tabs .tab:nth-of-type(2),.tab-ind .tab:nth-of-type(2){flex-grow:1.35}
+  .tl-l{display:none}.tl-s{display:inline}
+  #add-btn{display:none}
+  .fab:not([hidden]){display:inline-flex;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:45;border-radius:999px;min-height:52px;padding:0 20px;box-shadow:var(--shadow-lg)}
+  .wrap{padding-bottom:110px}
+  .vrow .dots{gap:5px}.dot{height:40px}
+  .pas{min-height:38px;min-width:48px}
+  .flip-btn{width:42px;height:42px}
+  .dc{width:44px;height:40px}
+  .news-tg{display:inline-flex;align-items:center;gap:8px;background:none;border:0;padding:0;min-height:40px;font:inherit;color:inherit;cursor:pointer}
+  .news-tg .news-n{font-family:var(--f-body);font-size:13px;font-weight:800;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink)}
+  .news-tg svg{transition:transform .2s var(--ease-out)}
+  .news.open .news-tg svg{transform:rotate(180deg)}
+  .news:not(.open) ul,.news:not(.open) [data-act="news-hide"]{display:none}
+  .news .news-t:not(.news-tg){display:none}
+}
+.todo{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:10px}
+.todo-t{font-weight:800;margin:0}
+.todo-l{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.todo-l li>*{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--paper);font-size:14px;color:var(--ink)}
+.todo-l button{cursor:pointer;font-weight:700}
+@media (hover:hover) and (pointer:fine){.todo-l button:hover{border-color:var(--accent)}}
+.todo-r{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:10px;color:var(--muted)}
+.chip.dispo-oui{background:var(--olive-soft);color:var(--olive-text)}.chip.dispo-non{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)}
+.dispo{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:12px 14px;border-radius:12px;background:var(--paper);border:1px solid var(--line)}
+.dispo-q{font-weight:700;flex:1 1 220px}
+.dispo-b{display:flex;gap:6px}
+.dispo-b .btn.on{background:var(--ink);color:var(--card);border-color:var(--ink)}
 </style>
 </head>
 <body>
@@ -702,7 +746,7 @@ html{touch-action:pan-x pan-y}
       <nav class="tabs" id="tabs" role="tablist" aria-label="Vues du carnet">
         <span class="tab-ind" id="tab-ind" aria-hidden="true"></span>
         <button type="button" class="tab" role="tab" id="tab-galerie" data-view="galerie" aria-controls="panel" aria-selected="true">Galerie</button>
-        <button type="button" class="tab" role="tab" id="tab-comparateur" data-view="comparateur" aria-controls="panel" aria-selected="false">Comparateur</button>
+        <button type="button" class="tab" role="tab" id="tab-comparateur" data-view="comparateur" aria-controls="panel" aria-selected="false"><span class="tl-l">Comparateur</span><span class="tl-s" aria-hidden="true">Comparer</span></button>
         <button type="button" class="tab" role="tab" id="tab-podium" data-view="podium" aria-controls="panel" aria-selected="false">Podium</button>
         <button type="button" class="tab" role="tab" id="tab-carte" data-view="carte" aria-controls="panel" aria-selected="false">Carte</button>
         <button type="button" class="tab" role="tab" id="tab-dates" data-view="dates" aria-controls="panel" aria-selected="false">Dates</button>
@@ -711,6 +755,7 @@ html{touch-action:pan-x pan-y}
     </div>
     <main id="panel" role="tabpanel" aria-labelledby="tab-galerie"></main>
   </div>
+  <button type="button" class="btn btn-accent fab" data-act="add" id="add-fab" hidden>+ Ajouter</button>
 </div>
 
 <div class="dw-wrap" id="drawer-wrap" hidden>

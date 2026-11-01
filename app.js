@@ -187,11 +187,15 @@ const canVote = () => wouldVote() && !!S.members[S.myId];
 /* La galerie attend d'avoir reçu les logements, les notes et les inscrits : sinon les cartes se redessinent au fil des réponses et l'entrée animée est coupée. */
 const dataReady = () => !S.db || (S.loaded.listings && S.loaded.votes && S.loaded.members);
 const applicable = uid => crits().filter(c => !c.payersOnly || isPayer(uid));
+/* Un critère ajouté après coup n'est exigé que pour les logements qu'on commence à noter après son ajout :
+   ajouter un critère ne recache pas les notes déjà débloquées. */
 function hasCompleted(uid, lid){
   if (!uid) return false;
-  const sc = (votesOf(uid).scores || {})[lid] || {}; const ap = applicable(uid);
+  const sc = (votesOf(uid).scores || {})[lid] || {};
+  const ap = applicable(uid).filter(c => !c.addedAt || (sc._t0 && sc._t0 > c.addedAt));
   return ap.length > 0 && ap.every(c => typeof sc[c.id] === 'number');
 }
+const anyScore = x => !!x && Object.keys(x).some(k => k !== '_t0');
 const canSee = lid => !wouldVote() || hasCompleted(S.myId, lid);
 
 function stats(lid){
@@ -218,16 +222,41 @@ function stats(lid){
 }
 function computeStats(){ const o = {}; listingsArr().forEach(l => { o[l.id] = stats(l.id); }); return o; }
 const st = lid => S.st[lid] || stats(lid);
+/* Un logement qui a reçu un veto passe après tous ceux qui n'en ont pas (puis le moins de veto d'abord). */
 function ranking(){
   return listingsArr().map(l => ({l, s:st(l.id)})).sort((a, b) => {
+    const va = a.s.vetos.length ? 1 : 0, vb = b.s.vetos.length ? 1 : 0;
+    if (va !== vb) return va - vb;
+    if (a.s.vetos.length !== b.s.vetos.length) return a.s.vetos.length - b.s.vetos.length;
     const oa = a.s.overall == null ? -1 : a.s.overall, ob = b.s.overall == null ? -1 : b.s.overall;
     if (ob !== oa) return ob - oa;
     if (b.s.hearts.length !== a.s.hearts.length) return b.s.hearts.length - a.s.hearts.length;
     return (a.l.createdAt || 0) - (b.l.createdAt || 0);
   });
 }
+/* ---------- Prix par nuit et par personne ---------- */
+const MOIS3 = ['jan','fév','mar','avr','mai','jui','jul','aoû','sep','oct','nov','déc'];
+function monthIdx(w){ if (!w) return -1; w = w.toLowerCase().replace('fev', 'fév').replace('aou', 'aoû').replace('dec', 'déc'); if (/^juil/.test(w)) return 6; if (/^juin/.test(w)) return 5; return MOIS3.findIndex(m => w.startsWith(m)); }
+function nightsOf(l){
+  if (num(l.nights)) return num(l.nights);
+  const t = String(l.priceDates || '');
+  const n = t.match(/(\d{1,2})\s*nuit/i); if (n) return +n[1];
+  const w = t.match(/(\d{1,2})(?:er)?\s*([a-zéûè]{3,})?\.?\s*(?:au|→|->|-|–|à)\s*(\d{1,2})(?:er)?\s*([a-zéûè]{3,})/i);
+  if (w) {
+    const m2 = monthIdx(w[4]), m1 = w[2] ? monthIdx(w[2]) : m2; if (m1 < 0 || m2 < 0) return null;
+    const d = Math.round((new Date(YEAR, m2, +w[3]) - new Date(YEAR, m1, +w[1])) / 864e5);
+    if (d >= 1 && d <= 60) return d;
+  }
+  return null;
+}
+const travelers = () => int((S.trip || {}).voyageurs) || memberIds().length || null;
+function perPN(l){ const p = num(l.price), n = nightsOf(l), v = travelers(); return p != null && n && v ? p / n / v : null; }
+const fmtEur = n => n == null ? '–' : new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(n);
 function statusOf(l){ const ss = statuses(); let i = ss.findIndex(s => s.id === l.status); if (i < 0) i = 0; return {i, s:ss[i]}; }
 const chipHTML = l => { const o = statusOf(l); return `<span class="chip st${o.i % 4 + 1}">${esc(o.s.label)}</span>`; };
+/* Disponibilité du logement pour la semaine retenue (vérifiée par quelqu'un de la famille) */
+const dispoOf = l => { const w = (S.trip || {}).week; return w && l.dispo && l.dispo.week === w ? l.dispo.v : null; };
+const dispoChip = l => { if (!(S.trip || {}).week) return ''; const d = dispoOf(l); return d === 'oui' ? '<span class="chip dispo-oui">Libre ✓</span>' : d === 'non' ? '<span class="chip dispo-non">Pas libre</span>' : ''; };
 const avatar = (uid, cls) => { const n = nameOf(uid); return `<span class="av av${hashN(uid, 6) + 1} ${cls || ''}" title="${esc(n)}" aria-hidden="true">${esc((n.trim()[0] || '?').toUpperCase())}</span>`; };
 const photosOf = l => { const a = Array.isArray(l.photos) ? l.photos.filter(x => PHOTO_ID.test(x)) : []; if (!a.length && l.photo && PHOTO_ID.test(l.photo)) a.push(l.photo); return a; };
 const MAX_PH = 6;
@@ -288,6 +317,18 @@ function writeDoc(path, data){
   const p = prev.catch(() => {}).then(() => S.db.doc(path).set(data));
   writeQ[path] = p;
   p.catch(onWriteError);
+  return p;
+}
+/* Modifie quelques champs en relisant d'abord la version en base : on n'écrase pas ce que quelqu'un d'autre vient de changer. */
+function patchDoc(path, patch){
+  const prev = writeQ[path] || Promise.resolve();
+  const p = prev.catch(() => {}).then(async () => {
+    const r = S.db.doc(path); const sn = await r.get();
+    if (!sn.exists) throw {code:'not_found', message:'absent'};
+    return r.set(Object.assign({}, sn.data(), patch));
+  });
+  writeQ[path] = p;
+  p.catch(e => { if (e && e.code === 'not_found') toast('Ce logement vient d’être supprimé.'); else onWriteError(e); });
   return p;
 }
 function onWriteError(e){
@@ -543,9 +584,10 @@ function renderNews(){
   const voters = memberIds().filter(u => u !== me && (votesOf(u).updatedAt || 0) > since);
   if (voters.length) items.push(`<li><span>${esc(voters.map(nameOf).join(', '))} ${voters.length > 1 ? 'ont' : 'a'} voté</span></li>`);
   if (!items.length) return off();
-  const html = `<p class="news-t">Depuis ta dernière visite</p><ul>${items.slice(0, 8).join('')}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
+  const n = Math.min(8, items.length);
+  const html = `<p class="news-t">Depuis ta dernière visite</p><button type="button" class="news-t news-tg" data-act="news-toggle" aria-expanded="${!!S.newsOpen}">Depuis ta dernière visite <span class="news-n">${n} nouveauté${n > 1 ? 's' : ''}</span>${IC.chev}</button><ul>${items.slice(0, 8).join('')}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
   if (el._h === html) return;
-  const first = el.hidden; el.innerHTML = html; el._h = html; el.hidden = false;
+  const first = el.hidden; el.innerHTML = html; el._h = html; el.hidden = false; el.classList.toggle('open', !!S.newsOpen);
   if (first) { anim(el, [{opacity:0, transform:'translateY(-10px)'}, {opacity:1, transform:'none'}], {duration:480, easing:EASE_OUT}); $$('li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'none'}], {duration:360, delay:160 + i * 60, easing:EASE_BACK, fill:'backwards'})); }
 }
 
@@ -599,7 +641,17 @@ function makeDb(sb, uid){
       return () => colL.get(c).delete(next);
     }
   });
-  return {doc:docRef, collection:colRef};
+  /* Au retour sur la page (iPhone : Safari coupe la connexion en arrière-plan), on relit tout ce qui est suivi. */
+  async function refresh(){
+    await Promise.all(Array.from(loaded).map(async c => {
+      const {data, error} = await sb.from('docs').select('path,data').eq('collection', c); if (error) return;
+      const seen = new Set((data || []).map(r => r.path));
+      Array.from(cache.keys()).forEach(k => { if (colOf(k) === c && !seen.has(k)) cache.delete(k); });
+      (data || []).forEach(r => cache.set(r.path, r.data));
+      (colL.get(c) || new Set()).forEach(f => f(snapCol(c)));
+    }).concat(Array.from(docL.keys()).map(p => docRef(p).get().then(sn => (docL.get(p) || new Set()).forEach(f => f(sn)), () => {}))));
+  }
+  return {doc:docRef, collection:colRef, refresh};
 }
 /* Photos : stockées dans le « bucket » photos de Supabase. */
 function makeAssets(sb, uid){
@@ -658,7 +710,8 @@ async function doLogin(){
 async function boot(){
   applyMotion(); readHash(); bindStatic();
   const C = window.GITE_CONFIG || {};
-  if (!window.supabase || !C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.booted = true; renderAll(); runIntro(); return; }
+  if (!window.supabase && C.url && C.key && !/COLLE_ICI/.test(C.url + C.key)) { S.netMissing = true; S.booted = true; renderAll(); runIntro(); return; }
+  if (!C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.booted = true; renderAll(); runIntro(); return; }
   SB = window.supabase.createClient(C.url, C.key);
   renderAll();
   let session = null;
@@ -718,12 +771,13 @@ function renderHeader(){
   }
   $('#grp').textContent = ids.length ? plural(ids.length, 'inscrit') : '';
   if (!$('#gear-pop').hidden) renderGear();
-  $('#add-btn').hidden = !canEdit();
+  $('#add-btn').hidden = !canEdit(); $('#add-fab').hidden = !canEdit();
 }
 function renderBanner(){
   let msg = '';
   if (S.cfgMissing) msg = 'Le site n’est pas encore relié à sa base de données : renseigne l’adresse et la clé Supabase dans le fichier config.js.';
-  else if (S.booted && !S.db) msg = 'Connecte-toi à Claude pour voir les logements du groupe et voter.';
+  else if (S.netMissing) msg = 'Impossible de joindre la base de données (connexion coupée ?). Vérifie ta connexion puis recharge la page.';
+  else if (S.booted && !S.db) msg = 'Connecte-toi pour voir les logements du groupe et voter.';
   else if (S.booted && !S.myId) msg = 'Ton compte n’est pas reconnu sur cette page : tu peux regarder, mais pas voter.';
   else if (S.readOnly) msg = 'Tu peux consulter le carnet mais pas le modifier. Préviens l’organisateur.';
   else if (cfg().closed) msg = 'Les votes sont clos depuis le ' + fmtLong(cfg().closedAt) + '. Le podium est définitif.';
@@ -746,20 +800,20 @@ function renderTrip(force){
       ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
       : `<span class="tf-v">${esc(v || ph)}</span>`;
     return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
-  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span>${pen ? `<button type="button" class="tf-sub tf-edit" data-trip="voyageurs" title="Nombre de personnes qui partent (pour le prix par personne)">${t.voyageurs ? esc(plural(int(t.voyageurs), 'voyageur')) : 'Combien partent ?'}${IC.pen}</button>` : (t.voyageurs ? `<span class="tf-sub">${esc(plural(int(t.voyageurs), 'voyageur'))}</span>` : '')}</div>`;
   if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
 }
 function editTrip(k){
   const btn = $(`[data-trip="${k}"]`); if (!btn) return;
   const cur = (S.trip || {})[k] || '';
   const inp = document.createElement('input');
-  inp.id = 'trip-in-' + k; inp.value = cur; inp.maxLength = 80; inp.setAttribute('aria-labelledby', 'tl-' + k);
+  inp.id = 'trip-in-' + k; inp.value = cur; inp.maxLength = 80; if (k === 'voyageurs') { inp.inputMode = 'numeric'; inp.placeholder = 'ex. 8'; inp.setAttribute('aria-label', 'Nombre de voyageurs'); } inp.setAttribute('aria-labelledby', 'tl-' + k);
   inp.placeholder = (TRIP_FIELDS.find(f => f[0] === k) || [])[2] || '';
   btn.replaceWith(inp); inp.focus(); inp.select();
   let done = false;
   const fin = save => {
     if (done) return; done = true;
-    const v = inp.value.trim();
+    let v = inp.value.trim(); if (k === 'voyageurs') v = int(v) ? String(Math.min(40, int(v))) : '';
     if (save && v !== cur) {
       S.trip = Object.assign({}, S.trip, {[k]:v, updatedAt:Date.now()});
       writeDoc('trip/main', S.trip).then(() => toast('Voyage mis à jour'));
@@ -779,7 +833,7 @@ function placeInd(animate){
   const nav = $('#tabs'), ind = $('#tab-ind'), a = $('.tab[aria-selected="true"]', nav); if (!a) return;
   /* offsetLeft/offsetTop ignorent les transformations : l'indicateur reste juste même quand les onglets sont en pleine animation d'entrée */
   /* Copie des onglets en couleurs inversées : la pastille les traverse par-dessus sans jamais les masquer */
-  if (ind.children.length !== $$('.tab', nav).length) ind.innerHTML = $$('.tab', nav).map(t => `<span class="tab">${esc(t.textContent)}</span>`).join('');
+  if (ind.children.length !== $$('button.tab', nav).length) ind.innerHTML = $$('button.tab', nav).map(t => `<span class="tab">${t.innerHTML}</span>`).join('');
   const nw = nav.clientWidth, nh = nav.clientHeight;
   if (!nw) return;
   const l = a.offsetLeft, t = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight;
@@ -793,6 +847,8 @@ function setView(v){
   S.view = v;
   try { history.replaceState(null, '', '#' + v); } catch (e) {}
   renderTabs();
+  /* Onglets collants : si on a défilé loin, on remonte au début du nouvel onglet (juste sous la barre) */
+  { const bar = $('.bar'), pn = $('#panel'); if (bar && pn) { const bb = bar.getBoundingClientRect(), pt = pn.getBoundingClientRect().top; if (pt < bb.bottom - 1) window.scrollTo({top:Math.max(0, scrollY + pt - bb.height - 8), behavior:'instant'}); } }
   if (M() && GM.swap && lastView) {
     S.swapping = true;
     GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; });
@@ -817,12 +873,13 @@ function filtersHTML(withSort){
   return `<div class="filters"><h2 class="count" id="g-count"></h2><div class="f-set">
     <div class="fld"><label for="f-dept">Département</label><select id="f-dept"></select></div>
     <div class="fld"><label for="f-status">Statut</label><select id="f-status"></select></div>
+    <div class="fld" id="f-dispo-fld" hidden><label for="f-dispo">Semaine retenue</label><select id="f-dispo"><option value="">Tous</option><option value="oui">Libres</option><option value="pasnon">Sauf « pas libre »</option></select></div>
     ${withSort ? '<div class="fld"><label for="f-sort">Trier par</label><select id="f-sort"></select></div>' : ''}
   </div></div>`;
 }
 function shellHTML(v){
   if (v === 'galerie') return `${filtersHTML(true)}<div class="g-layout" style="margin-top:20px">
-    <div class="g-main"><div class="grid" id="grid"></div></div>
+    <div class="g-main"><div id="todo"></div><div class="grid" id="grid"></div></div>
     <aside class="g-side" aria-label="Aperçu">
       <section class="side-card"><h3 class="side-t">Où sont-ils ?</h3><div id="mini-map"></div><p class="small muted">Clique sur un département pour l’explorer sur la carte.</p></section>
       <section class="side-olive" id="side-podium"></section>
@@ -835,8 +892,9 @@ function shellHTML(v){
     <div class="legend"><span><i style="background:var(--land-on)"></i>Département avec des logements</span><span><i style="background:var(--accent);border-color:var(--accent);border-radius:50%"></i>Logement</span></div></div>
     <aside class="map-side" id="map-side" aria-live="polite"></aside></div>`;
 }
-const fpass = l => (!S.f.dept || l.dept === S.f.dept) && (!S.f.status || statusOf(l).s.id === S.f.status);
+const fpass = l => (!S.f.dept || l.dept === S.f.dept) && (!S.f.status || statusOf(l).s.id === S.f.status) && (!S.f.dispo || !(S.trip || {}).week || (S.f.dispo === 'oui' ? dispoOf(l) === 'oui' : dispoOf(l) !== 'non'));
 function fillFilterSelects(){
+  { const df = $('#f-dispo-fld'); if (df) { df.hidden = !(S.trip || {}).week; const sel = $('#f-dispo'); if (sel && document.activeElement !== sel) sel.value = S.f.dispo || ''; } }
   const d = $('#f-dept'), s = $('#f-status'), so = $('#f-sort');
   if (d && document.activeElement !== d) {
     const present = Array.from(new Set(listingsArr().map(l => l.dept).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fr', {numeric:true}));
@@ -887,7 +945,7 @@ function cardHTML(l){
       <div class="c-top"><div><h3 class="c-title">${esc(l.title || 'Sans titre')}</h3><p class="c-place">${esc(placeOf(l))}</p></div>${score}</div>
       <p class="facts">${esc(facts)}</p>
       ${eq ? `<p class="eq">${esc(eq)}</p>` : ''}
-      <div class="chips">${chipHTML(l)}</div>
+      <div class="chips">${chipHTML(l)}${dispoChip(l)}</div>
       <div class="foot"><span>Proposé par ${esc(nameOf(l.addedBy))}</span><span>${s.voted} / ${s.total} ont noté</span></div>
     </div>
     <button type="button" class="card-hit" data-open="${esc(l.id)}" aria-label="Ouvrir la fiche : ${esc(l.title || 'Sans titre')}"></button>
@@ -912,8 +970,42 @@ function emptyHTML(){
     <p>Trouve une annonce sur Airbnb, Abritel, Gîtes de France ou ailleurs, puis ajoute-la ici avec son lien. Colle le texte ou une capture d’écran de l’annonce : la fiche se remplit toute seule.</p>
     ${canEdit() ? '<button type="button" class="btn btn-accent" data-act="add">Ajouter le premier logement</button>' : ''}</div>`;
 }
+/* « Ce qu'il te reste à noter » et relance des retardataires */
+function lateMembers(){ const all = listingsArr(); return memberIds().filter(u => all.some(l => !hasCompleted(u, l.id))); }
+function fillTodo(){
+  const el = $('#todo'); if (!el) return;
+  let html = '';
+  if (canVote() && dataReady() && !cfg().closed) {
+    const todo = listingsArr().filter(l => !hasCompleted(S.myId, l.id)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const late = lateMembers().filter(u => u !== S.myId);
+    if (todo.length || late.length) {
+      html = `<section class="todo">${todo.length
+        ? `<p class="todo-t">Il te reste ${todo.length > 1 ? todo.length + ' logements' : 'un logement'} à noter</p><ul class="todo-l">${todo.slice(0, 6).map(l => `<li><button type="button" data-open="${esc(l.id)}">${esc(l.title)}</button></li>`).join('')}${todo.length > 6 ? `<li><span>+ ${todo.length - 6}</span></li>` : ''}</ul>`
+        : '<p class="todo-t">Tu as tout noté 👍</p>'}
+        ${late.length ? `<div class="todo-r"><span class="small">${esc(late.map(nameOf).join(', '))} ${late.length > 1 ? 'n’ont' : 'n’a'} pas encore tout noté.</span><button type="button" class="btn btn-sm" data-act="nudge">Relancer</button></div>` : ''}</section>`;
+    }
+  }
+  if (el._h !== html) { el.innerHTML = html; el._h = html; }
+}
+function setDispo(v){
+  const l = S.listings[S.openId]; const w = (S.trip || {}).week; if (!l || !w || !canEdit()) return;
+  const dispo = v ? {week:w, v, by:S.myId, at:Date.now()} : null;
+  S.listings = Object.assign({}, S.listings, {[l.id]:Object.assign({}, l, {dispo})});
+  const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[l.id]);
+  const b = $(`#dw-facts [data-dispo="${v}"]`); if (b) b.focus({preventScroll:true});
+  patchDoc('listings/' + l.id, {dispo}).then(() => toast(v === 'oui' ? 'Noté : libre cette semaine-là' : v === 'non' ? 'Noté : pas libre cette semaine-là' : 'Disponibilité à vérifier'));
+  schedule();
+}
+async function nudge(){
+  const late = lateMembers().filter(u => u !== S.myId);
+  const text = `Petit rappel pour ${cfg().title} : ${late.map(nameOf).join(', ')}, il vous reste des logements à noter 🙂`;
+  const url = location.href.split('#')[0];
+  try { if (navigator.share) { await navigator.share({title:cfg().title, text, url}); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(text + ' ' + url); toast('Message copié : colle-le dans votre conversation de famille.'); }
+  catch (e) { toast(text); }
+}
 function fillGallery(changed){
-  fillFilterSelects();
+  fillFilterSelects(); fillTodo();
   const list = galleryList();
   $('#g-count').textContent = countLabel(list.length, listingsArr().length);
   const grid = $('#grid');
@@ -937,10 +1029,14 @@ function fillGallery(changed){
   if (mini._h !== mm) { mini.innerHTML = mm; mini._h = mm; if (changed) popPins(mini); }
   fillSidePodium();
 }
+/* Le podium se débloque quand on a tout noté, puis reste visible : un logement ajouté ensuite ne le recache plus. */
 function podiumUnlocked(){
   const list = listingsArr();
   if (!wouldVote()) return true;
-  return list.length > 0 && list.every(l => hasCompleted(S.myId, l.id));
+  if (votesOf(S.myId).podiumOpen) return list.length > 0;
+  const ok = list.length > 0 && list.every(l => hasCompleted(S.myId, l.id));
+  if (ok && canVote() && !S.podMarked) { S.podMarked = true; setTimeout(() => { editMyVote(v => { v.podiumOpen = true; }); flushVote(); }, 0); }
+  return ok;
 }
 function fillSidePodium(){
   const el = $('#side-podium'); if (!el) return;
@@ -967,7 +1063,7 @@ function mapSVG(mini){
   const pm = pinMap();
   const pins = listingsArr().map(l => {
     const p = pinPos(l, pm); if (!p) return '';
-    return `<g class="pin${S.openId === l.id ? ' on' : ''}" ${mini ? 'data-open' : 'data-pinlid'}="${esc(l.id)}" transform="translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})" tabindex="${mini ? -1 : 0}" role="button" aria-label="Ouvrir la fiche : ${esc(l.title)}"><g class="pin-s"><circle r="${r * 1.4}" class="pin-halo"/><circle r="${r}" class="pin-dot"/></g></g>`;
+    return `<g class="pin${S.openId === l.id ? ' on' : ''}" ${mini ? 'data-open' : 'data-pinlid'}="${esc(l.id)}" transform="translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})" tabindex="${mini ? -1 : 0}" role="button" aria-label="Ouvrir la fiche : ${esc(l.title)}"><g class="pin-s">${mini ? '' : `<circle r="${r * 2.6}" class="pin-hit"/>`}<circle r="${r * 1.4}" class="pin-halo"/><circle r="${r}" class="pin-dot"/></g></g>`;
   }).join('');
   return `<svg viewBox="0 0 ${FR.w} ${FR.h}" class="fr ${mini ? 'fr-mini' : 'fr-big'}" role="group" aria-label="Carte de France des logements proposés"><g class="zoom"${mini ? '' : ' id="zoomg"'}>${paths}<g class="pins">${pins}</g></g></svg>`;
 }
@@ -1086,6 +1182,7 @@ function fillCompare(changed){
     const s = st(l.id); const see = canSee(l.id);
     if (k === 'title') return String(l.title || '').toLowerCase();
     if (k === 'price') return num(l.price);
+    if (k === 'ppn') return perPN(l);
     if (k === 'overall') return see ? s.overall : null;
     if (k === 'hearts') return s.hearts.length;
     if (k === 'voted') return s.voted;
@@ -1095,24 +1192,25 @@ function fillCompare(changed){
   arr.sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; if (typeof va === 'string') return dir * va.localeCompare(vb, 'fr'); return dir * (va - vb); });
   const wrap = $('#cmp-wrap');
   if (!all.length) { wrap.innerHTML = `<div style="padding:24px">${emptyHTML()}</div>`; wrap._h = null; return; }
-  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
+  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${sortTh('ppn', 'Par nuit et pers.')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
     arr.map(l => {
       const s = st(l.id); const see = canSee(l.id);
       return `<tr data-k="${esc(l.id)}"><td class="c-name"><button type="button" class="row-btn" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span></button></td>
         <td class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</td>
+        <td class="num">${esc(fmtEur(perPN(l)))}</td>
         ${cs.map(c => `<td>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</td>`).join('')}
         <td>${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span>`) : `<span class="lock">${IC.lock}</span>`}</td>
         <td>${badgesHTML(l, s, true, true) || '<span class="muted">–</span>'}</td>
         <td class="num">${s.voted} / ${s.total}</td>
-        <td>${chipHTML(l)}</td></tr>`;
+        <td>${chipHTML(l)}${dispoChip(l)}</td></tr>`;
     }).join('') + '</tbody></table>';
-  const sortOpts = [['title', 'Nom'], ['price', 'Prix total'], ['overall', 'Moyenne']].concat(cs.map(c => ['c:' + c.id, c.label]), [['hearts', 'Cœurs et veto'], ['voted', 'Ont noté']]);
+  const sortOpts = [['title', 'Nom'], ['price', 'Prix total'], ['ppn', 'Prix par nuit et par personne'], ['overall', 'Moyenne']].concat(cs.map(c => ['c:' + c.id, c.label]), [['hearts', 'Cœurs et veto'], ['voted', 'Ont noté']]);
   const cards = `<div class="cmp-cards"><div class="cc-bar"><label class="cc-sort"><span>Trier par</span><select id="cmp-sort" class="input">${sortOpts.map(o => `<option value="${esc(o[0])}"${o[0] === k ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label><button type="button" class="btn cc-dir" data-sortdir aria-label="${dir > 0 ? 'Ordre croissant' : 'Ordre décroissant'}">${dir > 0 ? '↑' : '↓'}</button></div>` +
     arr.map(l => {
       const s = st(l.id); const see = canSee(l.id);
       const crs = cs.map(c => `<li><span class="cc-l">${esc(c.label)}</span>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</li>`).join('');
       return `<article class="cc" data-k="${esc(l.id)}"><button type="button" class="row-btn cc-top" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span class="grow"><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span><span class="cc-sc">${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span><small>/ 10</small>`) : `<span class="lock">${IC.lock}</span>`}</span></button>
-        <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}</div>
+        <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${perPN(l) != null ? `<span class="small muted">${esc(fmtEur(perPN(l)))} / nuit / pers.</span>` : ''}${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}${dispoChip(l)}</div>
         ${crs ? `<ul class="cc-crit">${crs}</ul>` : ''}</article>`;
     }).join('') + '</div>';
   html += cards;
@@ -1155,7 +1253,7 @@ function fillPodium(changed){
   let acts = '';
   if (S.isOwner && canEdit()) {
     if (!c.closed) acts += S.confirmClose
-      ? `<div class="confirm"><span>Les votes seront figés pour tout le monde.</span><button type="button" class="btn btn-sm btn-accent" data-act="close-confirm">Clore et révéler</button><button type="button" class="btn btn-sm" data-act="close-cancel">Annuler</button></div>`
+      ? `<div class="confirm"><span>Les votes seront figés pour tout le monde.${(() => { const nv = all.filter(l => st(l.id).vetos.length).length; const late = memberIds().filter(u => all.some(l => !hasCompleted(u, l.id))).length; return (nv ? ` ${nv > 1 ? nv + ' logements ont' : 'Un logement a'} un veto et ${nv > 1 ? 'passeront' : 'passera'} après les autres.` : '') + (late ? ` ${late > 1 ? late + ' personnes n’ont' : 'Une personne n’a'} pas encore tout noté.` : ''); })()}</span><button type="button" class="btn btn-sm btn-accent" data-act="close-confirm">Clore et révéler</button><button type="button" class="btn btn-sm" data-act="close-cancel">Annuler</button></div>`
       : `<button type="button" class="btn btn-olive" data-act="close-votes"${all.length ? '' : ' disabled'}>Clore les votes</button>`;
     else acts += '<button type="button" class="btn" data-act="reopen">Rouvrir les votes</button>';
   }
@@ -1175,8 +1273,12 @@ function fillPodium(changed){
   const ranked = ranking();
   const kept = ranked.filter(r => r.s.overall != null);
   const unrated = ranked.filter(r => r.s.overall == null);
+  const vetoed = ranked.filter(r => r.s.vetos.length).length;
+  const mine = wouldVote() ? all.filter(l => !hasCompleted(S.myId, l.id)) : [];
   const html = head +
     (kept.length ? `<div class="stage">${kept.slice(0, 3).map((r, i) => stepHTML(r, i + 1)).join('')}</div>` : '<div class="lock-card"><p class="muted">Pas encore assez de notes pour un podium.</p></div>') +
+    (vetoed ? `<p class="pod-note">${IC.ban}<span>${vetoed > 1 ? vetoed + ' logements ont' : 'Un logement a'} reçu un veto : ${vetoed > 1 ? 'ils passent' : 'il passe'} après tous les autres dans le classement.</span></p>` : '') +
+    (mine.length ? `<p class="pod-note">${IC.lock}<span>Tu n’as pas encore noté ${mine.length > 1 ? mine.length + ' logements' : '« ' + esc(mine[0].title) + ' »'} : pense à ${mine.length > 1 ? 'les' : 'le'} noter.</span></p>` : '') +
     (kept.length > 3 || unrated.length ? `<section class="sec-gap"><h2 class="h2">La suite du classement</h2><ul class="rest">${kept.slice(3).map((r, i) => `<li data-k="${esc(r.l.id)}"><button type="button" class="ml-item" data-open="${esc(r.l.id)}"><span class="rk">${i + 4}</span><span class="thumb">${photoHTML(r.l)}</span><span class="grow"><span class="tt">${esc(r.l.title)}</span><br><span class="sub">${esc(placeOf(r.l))}</span></span>${badgesHTML(r.l, r.s, false, true)}<span class="num big-num">${fmtScore(r.s.overall)}</span></button></li>`).join('')}${unrated.map(r => `<li data-k="${esc(r.l.id)}"><button type="button" class="ml-item" data-open="${esc(r.l.id)}"><span class="rk">·</span><span class="thumb">${photoHTML(r.l)}</span><span class="grow"><span class="tt">${esc(r.l.title)}</span><br><span class="sub">Pas encore noté</span></span></button></li>`).join('')}</ul></section>` : '') +
     whoHTML();
   if (el._h !== html) { if (GM.killScroll) GM.killScroll('sections'); const before = flipCapture(el); el.innerHTML = html; el._h = html; flipPlay(el, before, !changed); if (changed) podiumEntrance(el); }
@@ -1240,7 +1342,7 @@ function drawerHTML(l){
       <section id="dw-vote" aria-label="Mon vote">${dwVote(l)}</section>
       <section id="dw-others" aria-label="Les notes du groupe">${dwOthers(l)}</section>
       <section id="dw-comments" aria-labelledby="dw-ct"><h3 class="sec-t" id="dw-ct">Commentaires</h3><div id="dw-clist">${dwComments(l)}</div>
-        ${canEdit() ? `<form class="cform" id="dw-cform"><label for="dw-ctext" class="sr-only">Ton commentaire</label><textarea id="dw-ctext" class="input" rows="2" maxlength="1000" placeholder="Une remarque, une question pour le propriétaire…"></textarea><div class="row"><span class="hint">Ctrl + Entrée pour envoyer</span><button type="submit" class="btn btn-sm btn-accent">Envoyer</button></div></form>` : ''}
+        ${canEdit() ? `<form class="cform" id="dw-cform"><label for="dw-ctext" class="sr-only">Ton commentaire</label><textarea id="dw-ctext" class="input" rows="2" maxlength="1000" placeholder="Une remarque, une question pour le propriétaire…">${esc(store.get('gite-cdraft-' + l.id) || '')}</textarea><div class="row"><span class="hint">Ctrl + Entrée pour envoyer</span><button type="submit" class="btn btn-sm btn-accent">Envoyer</button></div></form>` : ''}
       </section>
     </div>
   </div>`;
@@ -1261,9 +1363,13 @@ function dwHead(l){
 }
 function dwFacts(l){
   const s = st(l.id);
-  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || '–'], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
+  const nn = nightsOf(l), ppn = perPN(l);
+  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Par nuit et par personne', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn) + ' (' + plural(travelers(), 'voyageur') + ')'], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
   const eq = (l.equipments || []);
+  const wk = (S.trip || {}).week && WEEKS.find(x => x.id === S.trip.week); const dv = dispoOf(l);
+  const dispoBlock = wk ? `<div class="dispo"><span class="dispo-q">Libre la semaine retenue (${esc(weekLabel(wk))}) ?</span>${canEdit() ? `<div class="dispo-b" role="group" aria-label="Disponibilité">${[['oui', 'Oui'], ['non', 'Non'], ['', 'À vérifier']].map(([k, t]) => `<button type="button" class="btn btn-sm${(dv || '') === k ? ' on' : ''}" data-dispo="${k}" aria-pressed="${(dv || '') === k}">${t}</button>`).join('')}</div>` : `<strong>${dv === 'oui' ? 'Oui' : dv === 'non' ? 'Non' : 'À vérifier'}</strong>`}${l.dispo && l.dispo.week === wk.id && l.dispo.by ? `<span class="small muted">Vérifié par ${esc(nameOf(l.dispo.by))} ${esc(relTime(l.dispo.at))}</span>` : ''}</div>` : '';
   return `<div class="sec-gap" style="gap:16px">
+    ${dispoBlock}
     <dl class="dl">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
     ${eq.length ? `<div class="eqs">${eq.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
     ${l.note ? `<p class="quote">${esc(l.note)}</p>` : ''}
@@ -1273,7 +1379,7 @@ function dwFacts(l){
 }
 function dwVote(l){
   const head = '<div class="sec-h"><h3 class="sec-t">Mon vote</h3><span class="save-ind" id="dw-save" aria-live="polite"></span></div>';
-  if (!S.myId || !S.db) return head + '<p class="muted" style="margin-top:8px">Connecte-toi à Claude pour voter.</p>';
+  if (!S.myId || !S.db) return head + '<p class="muted" style="margin-top:8px">Connecte-toi pour voter.</p>';
   if (S.readOnly) return head + '<p class="muted" style="margin-top:8px">Ton accès permet de consulter, pas de voter.</p>';
   if (!S.members[S.myId]) return head + '<p class="muted" style="margin-top:8px">Choisis ton prénom pour voter. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>';
   const closed = cfg().closed; const v = votesOf(S.myId); const sc = (v.scores || {})[l.id] || {};
@@ -1284,6 +1390,8 @@ function dwVote(l){
   const hints = [];
   if (v.heart && v.heart !== l.id && S.listings[v.heart]) hints.push('Ton coup de cœur actuel : ' + S.listings[v.heart].title + '.');
   if (v.veto && v.veto !== l.id && S.listings[v.veto]) hints.push('Ton veto actuel : ' + S.listings[v.veto].title + '.');
+  if (v.heart && !S.listings[v.heart]) hints.push('Le logement de ton coup de cœur a été supprimé : tu peux le redonner.');
+  if (v.veto && !S.listings[v.veto]) hints.push('Le logement de ton veto a été supprimé : tu peux le redonner.');
   hints.push('Un coup de cœur et un veto par personne : en choisir un autre le déplace ici.');
   return head + (closed ? '<p class="muted" style="margin-top:6px">Les votes sont clos.</p>' : '') +
     `<div class="vrows">${rows}</div>
@@ -1321,7 +1429,7 @@ function dwOthers(l){
     return h + `<div class="locked">${IC.lock}<p>${msg} Ça évite de s’influencer.</p><p class="small muted">${s.voted} / ${s.total} ont déjà noté ce logement.</p></div>`;
   }
   const cs = crits();
-  const voters = memberIds().filter(u => { const x = (votesOf(u).scores || {})[l.id]; return x && Object.keys(x).length; }).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
+  const voters = memberIds().filter(u => { const x = (votesOf(u).scores || {})[l.id]; return anyScore(x); }).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
   if (!voters.length) return h + '<p class="muted" style="margin-top:8px">Personne n’a encore noté ce logement.</p>';
   return h + `<div class="ov"><span class="ov-n" id="dw-ov">${fmtScore(s.overall)}</span><span class="muted">/ 10 de moyenne · ${s.voted} / ${s.total} ont tout noté</span></div>
     <div class="tbl-wrap"><table class="mini-tbl"><thead><tr><th scope="col">Personne</th>${cs.map(c => `<th scope="col" title="${esc(c.label)}">${esc(c.label.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>` +
@@ -1361,7 +1469,9 @@ function celebrateUnlock(){
 function setScore(cid, n){
   if (!canVote() || !S.openId) return;
   const lid = S.openId; const before = hasCompleted(S.myId, lid); const prevN = ((votesOf(S.myId).scores || {})[lid] || {})[cid];
-  editMyVote(v => { const cur = Object.assign({}, v.scores[lid] || {}); if (cur[cid] === n) delete cur[cid]; else cur[cid] = n; v.scores[lid] = cur; });
+  /* Au doigt, retoucher la même note ne l'efface pas (un double appui par erreur ferait tout recacher). */
+  if (prevN === n && S.ptype === 'touch') return;
+  editMyVote(v => { const cur = Object.assign({}, v.scores[lid] || {}); if (cur[cid] === n) delete cur[cid]; else cur[cid] = n; if (!cur._t0) cur._t0 = Date.now(); v.scores[lid] = cur; });
   paintVoteRow(cid, prevN); saveVote(false);
   if (before !== hasCompleted(S.myId, lid)) { S.st = computeStats(); updateOthersOnly(); }
   schedule();
@@ -1731,7 +1841,7 @@ async function saveSettings(form){
   const mm = $('#st-motion'); if (mm) { motion = mm.checked; store.set('gite-motion', motion ? 'on' : 'off'); applyMotion(); }
   if (S.isOwner && !welcome) {
     const c = cfg();
-    const criteria = $$('#st-crits .crit-row').map(r => { const lbl = $('input.input', r).value.trim(); if (!lbl) return null; return {id:r.dataset.cid, label:lbl}; }).filter(Boolean);
+    const criteria = $$('#st-crits .crit-row').map(r => { const lbl = $('input.input', r).value.trim(); if (!lbl) return null; const was = (c.criteria || []).find(x => x.id === r.dataset.cid); return was ? Object.assign({}, was, {label:lbl}) : {id:r.dataset.cid, label:lbl, addedAt:Date.now()}; }).filter(Boolean);
     const next = Object.assign({}, DEFAULT_CONFIG, S.config || {}, {title:($('#st-title-in').value.trim() || DEFAULT_CONFIG.title), criteria: criteria.length ? criteria : c.criteria});
     writeDoc('config/main', next);
   }
@@ -1869,7 +1979,7 @@ function buildMD(){
   ranked.forEach(r => {
     L.push('### ' + mdCell(r.l.title), '');
     L.push('| Personne | ' + cs.map(x => mdCell(x.label)).join(' | ') + ' |', '|' + ' --- |'.repeat(cs.length + 1));
-    ids.forEach(u => { const x = (votesOf(u).scores || {})[r.l.id]; if (x && Object.keys(x).length) L.push('| ' + mdCell(nameOf(u)) + ' | ' + cs.map(cc => typeof x[cc.id] === 'number' ? x[cc.id] : '–').join(' | ') + ' |'); });
+    ids.forEach(u => { const x = (votesOf(u).scores || {})[r.l.id]; if (anyScore(x)) L.push('| ' + mdCell(nameOf(u)) + ' | ' + cs.map(cc => typeof x[cc.id] === 'number' ? x[cc.id] : '–').join(' | ') + ' |'); });
     L.push('');
   });
   return L.join('\n');
@@ -1879,7 +1989,7 @@ function buildCSV(){
   const rows = [['Logement', 'Personne'].concat(cs.map(c => c.label), ['Coup de cœur', 'Veto']).map(q).join(';')];
   listingsArr().forEach(l => memberIds().forEach(u => {
     const x = (votesOf(u).scores || {})[l.id] || {}; const v = votesOf(u);
-    if (!Object.keys(x).length && v.heart !== l.id && v.veto !== l.id) return;
+    if (!anyScore(x) && v.heart !== l.id && v.veto !== l.id) return;
     rows.push([l.title, nameOf(u)].concat(cs.map(c => typeof x[c.id] === 'number' ? x[c.id] : ''), [v.heart === l.id ? 'oui' : '', v.veto === l.id ? 'oui' : '']).map(q).join(';'));
   }));
   return '﻿' + rows.join('\r\n');
@@ -1923,7 +2033,7 @@ function bindStatic(){
   document.addEventListener('click', e => {
     if (!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop();
     if (!e.target.closest('#gear-pop') && !e.target.closest('#gear-btn')) closeGear();
-    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-pinlid],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-sortdir],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
+    const t = e.target.closest('[data-view],[data-flip],[data-open],[data-pinlid],[data-act],[data-trip],[data-dep],[data-pick-dep],[data-heart],[data-veto],[data-score],[data-sort],[data-sortdir],[data-dispo],[data-delc],[data-close],[data-close-drawer],[data-rmcrit],[data-rmshot],[data-rmphoto],[data-pnav],[data-pop],[data-week],[data-fixweek],[data-dupopen]');
     if (t && t.id === 'dw-close') { closeDrawer(); return; }
     if (!t) { if (e.target.id === 'modal') closeModal(); if (e.target.closest('#dw-close')) closeDrawer(); return; }
     const d = t.dataset;
@@ -1943,8 +2053,9 @@ function bindStatic(){
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
     if (d.dep) { if (t.closest('.fr-big')) return selectDep(d.dep); S.mapSel = d.dep; lastView = null; S.view = 'galerie'; setView('carte'); return; }
+    if (d.dispo !== undefined) return setDispo(d.dispo);
     if (d.sortdir !== undefined) { S.cmp.dir *= -1; fillCompare(); return; }
-    if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
+    if (d.sort) { const k = d.sort; if (S.cmp.key === k) S.cmp.dir *= -1; else { S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price' || k === 'ppn') ? 1 : -1; } fillCompare(); const nb = $(`[data-sort="${CSS.escape(k)}"]`); if (nb) nb.focus(); return; }
     if (d.delc) { S.db.doc('comments/' + d.delc).delete().then(() => toast('Commentaire supprimé'), onWriteError); return; }
     if (d.rmcrit !== undefined) { t.closest('.crit-row').remove(); return; }
     if (d.addphurl) { addPhotoUrls(); return; }
@@ -1960,13 +2071,15 @@ function bindStatic(){
       case 'map-reset': return selectDep(null);
       case 'del': S.dwConfirm = true; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); { const b = $('[data-act="del-cancel"]'); if (b) b.focus(); } return;
       case 'del-cancel': S.dwConfirm = false; $('#dw-head').innerHTML = dwHead(S.listings[S.openId]); return;
-      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { if (l && S.assets) storedOnly(photosOf(l)).forEach(pid => S.assets.delete(pid).catch(() => {})); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); toast('Logement supprimé'); return; }
+      case 'del-confirm': { const id = S.openId; const l = S.listings[id]; S.db.doc('listings/' + id).delete().then(() => { toast('Logement supprimé'); if (l && S.assets) storedOnly(photosOf(l)).forEach(pid => S.assets.delete(pid).catch(() => {})); Object.values(S.comments).filter(c => c.lid === id).forEach(c => S.db.doc('comments/' + c.id).delete().catch(() => {})); }, onWriteError); closeDrawer(); return; }
       case 'close-votes': S.confirmClose = true; return fillPodium();
       case 'close-cancel': S.confirmClose = false; return fillPodium();
       case 'close-confirm': S.confirmClose = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:true, closedAt:Date.now()})); return;
       case 'reopen': S.revealPlayed = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:false, closedAt:null})).then(() => toast('Les votes sont rouverts')); return;
       case 'replay': return playReveal();
       case 'logout': SB.auth.signOut().finally(() => location.reload()); return;
+      case 'nudge': nudge(); return;
+      case 'news-toggle': { S.newsOpen = !S.newsOpen; const n = $('#news'); n.classList.toggle('open', S.newsOpen); t.setAttribute('aria-expanded', String(S.newsOpen)); if (S.newsOpen) $$('li', n).forEach((li, i) => anim(li, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:260, delay:i * 30, easing:EASE_OUT, fill:'backwards'})); return; }
       case 'news-hide': { S.newsHidden = true; const n = $('#news'); const a = anim(n, [{opacity:1, transform:'none'}, {opacity:0, transform:'translateY(-8px)'}], {duration:220, easing:EASE_OUT, fill:'forwards'}); if (a) a.finished.then(renderNews, renderNews); else renderNews(); return; }
       case 'unfix-week': if (S.isOwner) { S.trip = Object.assign({}, S.trip, {week:null, periode:'Été ' + YEAR + ', dates à définir', updatedAt:Date.now()}); writeDoc('trip/main', S.trip); schedule(); } return;
       case 'dl-md': return download('md');
@@ -2040,6 +2153,11 @@ function bindStatic(){
   document.addEventListener('pointerout', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && !(e.relatedTarget && pin.contains(e.relatedTarget))) hidePinTip(); });
   document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('focusout', e => { if (S.ptype === 'touch') return; if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
+  let hiddenAt = 0;
+  const resync = () => { if (S.db && S.db.refresh) S.db.refresh().catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 3000) resync(); });
+  addEventListener('online', resync);
+  addEventListener('pageshow', e => { if (e.persisted) resync(); });
   document.addEventListener('keydown', () => { S.kbd = true; }, true);
   document.addEventListener('pointerdown', e => { S.kbd = false; S.ptype = e.pointerType; }, true);
   document.addEventListener('click', e => { if (S.ptype === 'touch' && !(e.target.closest && e.target.closest('#big-map .pin'))) hidePinTip(); });
@@ -2049,9 +2167,10 @@ function bindStatic(){
     if (t.closest && t.closest('#f-listing .fgrid')) { ML.touched[t.id] = true; t.classList.remove('auto-filled'); }
     if (t.id === 'f-dept') { S.f.dept = t.value; renderView(); }
     else if (t.id === 'f-status') { S.f.status = t.value; renderView(); }
-    else if (t.id === 'cmp-sort') { const k = t.value; S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price') ? 1 : -1; fillCompare(); }
+    else if (t.id === 'f-dispo') { S.f.dispo = t.value; renderView(); }
+    else if (t.id === 'cmp-sort') { const k = t.value; S.cmp.key = k; S.cmp.dir = (k === 'title' || k === 'price' || k === 'ppn') ? 1 : -1; fillCompare(); }
     else if (t.id === 'f-sort') { S.f.sort = t.value; renderView(); }
-    else if (t.id === 'dw-status') { const l = S.listings[S.openId]; const rest = Object.assign({}, l); delete rest.id; if (l && t.value === 'reserve' && l.status !== 'reserve') S.stampAnim = l.id; if (l) writeDoc('listings/' + l.id, Object.assign(rest, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId})).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
+    else if (t.id === 'dw-status') { const l = S.listings[S.openId]; if (l && t.value === 'reserve' && l.status !== 'reserve') S.stampAnim = l.id; if (l) patchDoc('listings/' + l.id, {status:t.value, updatedAt:Date.now(), updatedBy:S.myId}).then(() => toast('Statut : ' + (statuses().find(s => s.id === t.value) || {}).label)); }
     else if (t.id === 'li-shots') { addShots(t.files); t.value = ''; }
     else if (t.id === 'li-photo-file') { Array.from(t.files || []).filter(f => /^image\//.test(f.type)).forEach(f => { if (ML.photos.length < MAX_PH) ML.photos.push({type:'file', file:f, url:URL.createObjectURL(f)}); else toast(MAX_PH + ' photos au maximum.'); }); t.value = ''; renderShots(); renderPhotoZone(); }
     else if (t.dataset && t.dataset.shotph !== undefined) { const sh = ML.shots[+t.dataset.shotph]; if (sh) { sh.phSeen = true; if (t.checked) { if (ML.photos.length >= MAX_PH) { t.checked = false; toast(MAX_PH + ' photos au maximum.'); } else ML.photos.push({type:'shot', shot:sh}); } else ML.photos = ML.photos.filter(p => p.shot !== sh); } renderPhotoZone(); }
@@ -2088,7 +2207,13 @@ function bindStatic(){
         const sc = $('.dw-scroll'); if (sc) { const r = li.getBoundingClientRect(), sr = sc.getBoundingClientRect(); if (r.bottom > sr.bottom - 80 || r.top < sr.top) sc.scrollTo({top:sc.scrollTop + r.top - sr.top - sr.height / 3, behavior:M() ? 'smooth' : 'auto'}); }
       }
       setTimeout(() => { const b = $('#dw-cform button[type=submit]'); if (b) { b.disabled = false; b.classList.remove('sent'); b.textContent = 'Envoyer'; } }, 1600);
-      writeDoc('comments/' + ref.id, c).then(() => toast('Commentaire envoyé'));
+      const lid = S.openId;
+      writeDoc('comments/' + ref.id, c).then(() => { toast('Commentaire envoyé'); store.set('gite-cdraft-' + lid, ''); }, () => {
+        /* Échec : on retire le commentaire affiché trop tôt et on rend le texte pour pouvoir renvoyer */
+        const rest = Object.assign({}, S.comments); delete rest[ref.id]; S.comments = rest;
+        store.set('gite-cdraft-' + lid, text);
+        if (S.openId === lid) { updateDrawer(); const t2 = $('#dw-ctext'); if (t2 && !t2.value.trim()) t2.value = text; }
+      });
     }
   });
   document.addEventListener('paste', e => {
