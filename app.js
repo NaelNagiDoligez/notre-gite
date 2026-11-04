@@ -108,6 +108,7 @@ function renderGear(){
   const out = SB && S.myId;
   p.innerHTML = `<div class="gp-head"><h2 class="gp-t">Réglages</h2><button type="button" class="icon-btn" data-gear-close aria-label="Fermer">${IC.x}</button></div>
     ${canEdit() ? `<div class="gp-me"><span class="gp-av">${avatar(S.myId, 'av-sm')}</span><div><strong>${esc(name || 'Mon profil')}</strong><button type="button" class="link-btn" data-act="my-settings">Mon profil et le carnet</button></div></div>` : ''}
+    ${S.isOwner && S.pendingCount ? `<button type="button" class="btn btn-accent btn-sm" data-act="my-settings" style="width:100%">${S.pendingCount > 1 ? S.pendingCount + ' demandes d’accès à valider' : '1 demande d’accès à valider'}</button>` : ''}
     <div class="gp-list">
       ${sw('motion', 'Animations', 'Mouvement et transitions', motion)}
       ${sw('scene', 'Décor illustré', 'Paysage et ciel qui suit l’heure', PREFS.scene())}
@@ -348,10 +349,11 @@ function editMyVote(fn){
 function saveVote(now){ clearTimeout(voteTimer); setSave('Enregistrement…'); voteTimer = setTimeout(flushVote, now ? 0 : 550); }
 function flushVote(){
   const v = S.votes[S.myId]; if (!v) return;
+  clearTimeout(voteTimer); voteTimer = 0;
   writeDoc('votes/' + S.myId, JSON.parse(JSON.stringify(v))).then(() => {
     if (S.votes[S.myId] === v) S.myVoteDirty = false;
     setSave('Enregistré');
-  }).catch(() => setSave(''));
+  }).catch(() => { setSave('Pas encore enregistré, nouvel essai…'); if (!voteTimer) voteTimer = setTimeout(flushVote, 5000); });
 }
 let savePillT = 0;
 function setSave(t){
@@ -366,6 +368,7 @@ function setSave(t){
 /* ---------- Pastilles coup de cœur / veto ---------- */
 function badgesHTML(l, s, inter, inline){
   const out = [];
+  if (!canSee(l.id)) return ''; /* comme les notes : cœurs et veto cachés tant que je n'ai pas noté ce logement */
   const one = (kind, ids, icon, label) => {
     if (!ids.length) return;
     const cls = `pas pas-${kind}${inter ? '' : ' pas-static'}`;
@@ -524,15 +527,15 @@ function fillDates(changed){
   };
   const owner = S.isOwner && canEdit();
   const cRet = () => { const w = WEEKS.find(x => x.id === t.week); return `<div><p class="lab">Semaine retenue</p><p class="big">${esc(w ? weekLabel(w) : (t.periode || ''))}</p></div>${owner ? '<button type="button" class="btn" data-act="unfix-week">Changer de semaine</button>' : ''}`; };
-  const cBest = (b = best) => `<div><p class="lab">En tête du sondage</p><p class="big">${esc(weekLabel(b.w))}</p><p>${b.yes} dispo · ${b.maybe} peut-être · ${b.no} pas dispo, sur ${esc(plural(ids.length, 'inscrit'))}</p></div>${owner ? `<button type="button" class="btn" data-fixweek="${b.w.id}">Retenir cette semaine</button>` : ''}`;
+  const cBest = (b = best) => `<div><p class="lab">En tête du sondage</p><p class="big">${esc(weekLabel(b.w))}</p><p>${b.yes} dispo · ${b.maybe} peut-être · ${b.no} pas dispo, sur ${esc(plural(ids.length, 'inscrit'))}</p>${(() => { const n = ids.filter(u => !Object.keys(votesOf(u).avail || {}).length).length; return n ? `<p class="small" style="color:var(--danger)">${n > 1 ? n + ' personnes n’ont' : '1 personne n’a'} pas encore répondu${owner ? ' : attends-les avant de retenir une semaine' : ''}.</p>` : ''; })()}</div>${owner ? `<button type="button" class="btn" data-fixweek="${b.w.id}">Retenir cette semaine</button>` : ''}`;
   const cNone = '<div><p class="big">Personne n’a encore répondu</p><p>Coche tes semaines possibles : la meilleure apparaîtra ici et dans le bandeau.</p></div>';
   const card = t.week ? cRet() : best ? cBest() : cNone;
-  const table = ids.length ? `<div class="tbl-wrap"><table class="dt"><thead><tr><th scope="col" style="text-align:left;padding-left:12px">Personne</th>${WEEKS.map(w => `<th scope="col"${hl(w)}>${esc(dShort(w.s))}<br><span style="font-weight:600">→ ${esc(dShort(w.e))}</span></th>`).join('')}</tr></thead>
+  const table = ids.length ? `<p class="scroll-hint">Fais glisser le tableau pour voir les ${WEEKS.length} semaines →</p><div class="tbl-wrap"><table class="dt"><thead><tr><th scope="col" style="text-align:left;padding-left:12px">Personne</th>${WEEKS.map(w => `<th scope="col"${hl(w)}>${esc(dShort(w.s))}<br><span style="font-weight:600">→ ${esc(dShort(w.e))}</span></th>`).join('')}</tr></thead>
     <tbody>${order.map(u => `<tr><th scope="row">${esc(nameOf(u))}${u === me ? ' <span class="muted" style="font-weight:600">(toi)</span>' : ''}</th>${WEEKS.map(w => cell(u, w)).join('')}</tr>`).join('')}</tbody>
     <tfoot><tr><th scope="row" style="text-align:left;padding-left:12px">Total</th>${ws.map(x => `<td${hl(x.w)}><div class="wbar"><span class="col"><span style="transform:scaleY(${(x.score / max).toFixed(3)})"></span></span><span class="num small">${x.yes}${x.maybe ? ' + ' + x.maybe : ''}</span></div></td>`).join('')}</tr></tfoot></table></div>
     <div class="legend-d"><span><span class="dc s2">${IC.yes}</span>Dispo</span><span><span class="dc s1">${IC.maybe}</span>Peut-être</span><span><span class="dc s0">${IC.no}</span>Pas dispo</span><span>Sous chaque semaine : nombre de « dispo » + « peut-être ». Un « peut-être » compte pour une demi-voix.</span></div>`
     : '<p class="muted">Personne n’est encore inscrit.</p>';
-  const html = `<div class="pod-head"><div><h2 class="h2" style="font-size:34px">Quand partir à l’été ${YEAR} ?</h2><p class="muted" style="max-width:62ch;margin-top:6px">Indique tes disponibilités semaine par semaine, du samedi au samedi. Un clic sur ta case passe de « dispo » à « peut-être », puis « pas dispo », puis la vide.</p></div></div>
+  const html = `<div class="pod-head"><div><h2 class="h2" style="font-size:34px">Quand partir à l’été ${YEAR} ?</h2><p class="muted" style="max-width:62ch;margin-top:6px">Indique tes disponibilités semaine par semaine, du samedi au samedi. Touche ta case pour répondre : dispo, puis peut-être, puis pas dispo, puis vide.</p></div></div>
     <section class="best-card">${card}${t.week ? '<span class="stamp stamp-week" aria-label="Retenu">Retenu</span>' : ''}</section>
     ${canEdit() && !S.members[me] ? '<p class="banner">Choisis ton prénom pour répondre au sondage. <button type="button" class="link-btn" data-act="profile">Choisir mon prénom</button></p>' : ''}
     ${table}`;
@@ -615,7 +618,9 @@ function makeDb(sb, uid){
   sb.channel('docs-' + newId()).on('postgres_changes', {event:'*', schema:'public', table:'docs'}, pl => {
     if (pl.eventType === 'DELETE') { const p = pl.old && pl.old.path; if (p) { cache.delete(p); emit(p); } }
     else if (pl.new && pl.new.path) { cache.set(pl.new.path, pl.new.data); emit(pl.new.path); }
-  }).subscribe();
+  }).subscribe(st => { if (st === 'SUBSCRIBED') { if (subOnce) refresh(); subOnce = true; } });
+  let subOnce = false, retryT = 0;
+  const retry = () => { clearTimeout(retryT); retryT = setTimeout(() => refresh(), 4000); };
   const docRef = p => {
     const ref = {
       id:p.split('/').pop(), path:p,
@@ -623,7 +628,7 @@ function makeDb(sb, uid){
       async set(d){ const {error} = await sb.from('docs').upsert({path:p, collection:colOf(p), data:d, updated_by:uid, updated_at:new Date().toISOString()}); if (error) throw sbErr(error); cache.set(p, d); emit(p); },
       async update(d){ const cur = cache.get(p); if (!cur) throw {code:'invalid_argument', message:'absent'}; return ref.set(Object.assign({}, cur, d)); },
       async delete(){ const {error} = await sb.from('docs').delete().eq('path', p); if (error) throw sbErr(error); cache.delete(p); emit(p); },
-      onSnapshot(next, onErr){ if (!docL.has(p)) docL.set(p, new Set()); docL.get(p).add(next); ref.get().then(next, e => onErr && onErr(e)); return () => docL.get(p).delete(next); },
+      onSnapshot(next, onErr){ if (!docL.has(p)) docL.set(p, new Set()); docL.get(p).add(next); ref.get().then(next, e => { retry(); if (onErr) onErr(e); }); return () => docL.get(p).delete(next); },
       collection(c){ return colRef(p + '/' + c); }
     };
     return ref;
@@ -635,21 +640,25 @@ function makeDb(sb, uid){
     onSnapshot(next, onErr){
       if (!colL.has(c)) colL.set(c, new Set()); colL.get(c).add(next);
       sb.from('docs').select('path,data').eq('collection', c).then(({data, error}) => {
-        if (error) { if (onErr) onErr(sbErr(error)); return; }
+        if (error) { retry(); if (onErr) onErr(sbErr(error)); return; }
         (data || []).forEach(r => cache.set(r.path, r.data)); loaded.add(c); next(snapCol(c));
-      });
+      }, e => { retry(); if (onErr) onErr(sbErr(e)); });
       return () => colL.get(c).delete(next);
     }
   });
   /* Au retour sur la page (iPhone : Safari coupe la connexion en arrière-plan), on relit tout ce qui est suivi. */
   async function refresh(){
-    await Promise.all(Array.from(loaded).map(async c => {
-      const {data, error} = await sb.from('docs').select('path,data').eq('collection', c); if (error) return;
+    let failed = false;
+    await Promise.all(Array.from(colL.keys()).map(async c => {
+      let res; try { res = await sb.from('docs').select('path,data').eq('collection', c); } catch (e) { res = {error:e}; }
+      const {data, error} = res; if (error) { failed = true; return; }
+      loaded.add(c);
       const seen = new Set((data || []).map(r => r.path));
       Array.from(cache.keys()).forEach(k => { if (colOf(k) === c && !seen.has(k)) cache.delete(k); });
       (data || []).forEach(r => cache.set(r.path, r.data));
       (colL.get(c) || new Set()).forEach(f => f(snapCol(c)));
-    }).concat(Array.from(docL.keys()).map(p => docRef(p).get().then(sn => (docL.get(p) || new Set()).forEach(f => f(sn)), () => {}))));
+    }).concat(Array.from(docL.keys()).map(p => docRef(p).get().then(sn => (docL.get(p) || new Set()).forEach(f => f(sn)), () => { failed = true; }))));
+    if (failed) retry();
   }
   return {doc:docRef, collection:colRef, refresh};
 }
@@ -693,10 +702,14 @@ function showWait(failed){
   const L = $('#login'); L.hidden = false; $('#app').inert = true;
   const first = $('#lg-wait').hidden; $('#f-login').hidden = true; $('#lg-wait').hidden = false;
   if (first && M() && GM.login) GM.login(L, '#lg-wait');
-  $('#lg-wait-t').textContent = failed ? 'Impossible de vérifier ton accès pour l’instant. Réessaie dans un instant.' : 'Ta demande est bien envoyée. Dès qu’un organisateur t’a validé, tu peux entrer dans le carnet.';
+  const mail = S.pendingSession && S.pendingSession.user && S.pendingSession.user.email;
+  $('#lg-wait-t').textContent = failed ? 'Impossible de vérifier ton accès pour l’instant. Réessaie dans un instant.'
+    : first ? 'Ta demande est bien envoyée' + (mail ? ' avec ' + mail : '') + '. Dès que l’organisateur t’a validé, tu peux entrer dans le carnet.'
+    : 'Toujours en attente' + (mail ? ' pour ' + mail : '') + ' : préviens l’organisateur pour qu’il te valide.';
 }
-async function recheck(){
+async function recheck(quiet){
   const b = $('#lg-recheck'); if (!S.pendingSession || b.disabled) return;
+  if (quiet) { await start(S.pendingSession); return; }
   b.disabled = true; b.textContent = 'Vérification…';
   await start(S.pendingSession);
   b.disabled = false; b.textContent = 'Vérifier maintenant';
@@ -730,6 +743,18 @@ async function doLogin(){
 }
 
 /* ---------- Démarrage ---------- */
+/* Une session est gardée sur l'appareil : si le réseau manque au démarrage, on attend au lieu de redemander la connexion. */
+function hasStoredSession(){ try { return Object.keys(localStorage).some(k => /^sb-.*-auth-token$/.test(k)); } catch (e) { return false; } }
+function waitNetwork(){
+  showLogin('Pas de connexion internet pour l’instant : le carnet s’ouvrira dès qu’elle revient.');
+  const again = async () => {
+    clearInterval(t); removeEventListener('online', again);
+    let session = null, err = null; try { const {data, error} = await SB.auth.getSession(); session = data && data.session; err = error; } catch (e) { err = e; }
+    if (session) start(session); else if (hasStoredSession() && (err || navigator.onLine === false)) waitNetwork(); else showLogin();
+  };
+  const t = setInterval(() => { if (navigator.onLine !== false) again(); }, 6000);
+  addEventListener('online', again);
+}
 async function boot(){
   applyMotion(); readHash(); bindStatic();
   const C = window.GITE_CONFIG || {};
@@ -737,8 +762,9 @@ async function boot(){
   if (!C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.waiting = false; S.booted = true; renderAll(); runIntro(); return; }
   SB = window.supabase.createClient(C.url, C.key);
   renderAll();
-  let session = null;
-  try { const {data} = await SB.auth.getSession(); session = data && data.session; } catch (e) {}
+  let session = null, gerr = null;
+  try { const {data, error} = await SB.auth.getSession(); session = data && data.session; gerr = error; } catch (e) { gerr = e; }
+  if (!session && (gerr || navigator.onLine === false) && hasStoredSession()) { waitNetwork(); return; }
   if (session) start(session);
   else {
     /* Retour de Google avec une erreur : on l'affiche au lieu de reboucler sans rien dire. */
@@ -773,16 +799,27 @@ async function start(session){
   S.meName = meta.prenom || meta.given_name || (meta.full_name || '').split(' ')[0] || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
   S.booted = true;
   subscribe(); renderAll();
-  if (S.isOwner) SB.from('pending').select('user_id', {count:'exact', head:true}).then(r => { if (r.count) setTimeout(() => toast(r.count + (r.count > 1 ? ' personnes attendent' : ' personne attend') + ' ta validation (Réglages)'), 1500); }, () => {});
+  if (S.isOwner) refreshPending(true);
 }
 function dbErr(e){ if (e && e.code === 'revoked') { S.readOnly = true; schedule(); } }
+/* Données venues de la base : on remet les types attendus pour qu'une fiche bizarre ne casse pas l'affichage. */
+function cleanListing(l){
+  const str = v => v == null ? '' : typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '');
+  ['title', 'url', 'source', 'commune', 'dept', 'note', 'priceDates', 'status', 'photo'].forEach(k => { if (l[k] != null && typeof l[k] !== 'string') l[k] = str(l[k]) || null; });
+  if (!Array.isArray(l.equipments)) l.equipments = typeof l.equipments === 'string' ? l.equipments.split(',').map(x => x.trim()).filter(Boolean) : [];
+  l.equipments = l.equipments.map(str).filter(Boolean);
+  if (l.photos != null && !Array.isArray(l.photos)) l.photos = [];
+  if (l.photos) l.photos = l.photos.filter(x => typeof x === 'string');
+  if (l.dispo != null && (typeof l.dispo !== 'object' || Array.isArray(l.dispo))) l.dispo = null;
+  return l;
+}
 function subscribe(){
   const db = S.db;
   db.doc('config/main').onSnapshot(s => { S.config = s.exists ? s.data() : null; schedule(); }, dbErr);
   db.doc('trip/main').onSnapshot(s => { S.trip = s.exists ? s.data() : {}; S.loaded.trip = true; schedule(); }, dbErr);
   db.collection('members').onSnapshot(q => { const m = {}; q.docs.forEach(d => { m[d.id] = d.data(); }); S.members = m; if (!q.metadata.fromCache) S.loaded.members = true; schedule(); }, dbErr);
   db.collection('votes').onSnapshot(q => { const v = {}; q.docs.forEach(d => { v[d.id] = d.data(); }); if (S.myVoteDirty && S.votes[S.myId]) v[S.myId] = S.votes[S.myId]; S.votes = v; S.loaded.votes = true; schedule(); }, dbErr);
-  db.collection('listings').onSnapshot(q => { const l = {}; q.docs.forEach(d => { l[d.id] = Object.assign({}, d.data(), {id:d.id}); }); S.listings = l; S.loaded.listings = true; schedule(); }, dbErr);
+  db.collection('listings').onSnapshot(q => { const l = {}; q.docs.forEach(d => { l[d.id] = cleanListing(Object.assign({}, d.data(), {id:d.id})); }); S.listings = l; S.loaded.listings = true; schedule(); }, dbErr);
   db.collection('comments').onSnapshot(q => { const c = {}; q.docs.forEach(d => { c[d.id] = Object.assign({}, d.data(), {id:d.id}); }); S.comments = c; schedule(); }, dbErr);
 }
 let raf = 0;
@@ -793,8 +830,8 @@ function renderAll(){
     S.seenPrev = S.members[S.myId].seenAt || 0;
     if (canEdit()) setTimeout(() => { const m = S.members[S.myId]; if (m) writeDoc('members/' + S.myId, Object.assign({}, m, {seenAt:Date.now()})); }, 5000);
   }
-  renderHeader(); renderBanner(); renderTrip(); renderNews(); renderTabs(); renderView();
-  if (S.openId) updateDrawer();
+  /* Une erreur dans un bloc n'empêche plus d'afficher les autres. */
+  [renderHeader, renderBanner, renderTrip, renderNews, renderTabs, renderView].concat(S.openId ? [updateDrawer] : []).forEach(f => { try { f(); } catch (e) { console.error('[gîte] ' + f.name, e); } });
   if (S.booted && S.loaded.members && S.myId && !S.readOnly && S.db && !S.members[S.myId] && !S.onboardShown && $('#modal').hidden) { S.onboardShown = true; openSettings(true); }
   maybeReveal();
 }
@@ -844,7 +881,7 @@ function renderTrip(force){
       ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
       : `<span class="tf-v">${esc(v || ph)}</span>`;
     return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
-  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${dataReady() ? avancementHTML() : '<span class="sk sk-l sk-w70" style="height:26px"></span><span class="sk sk-l sk-w90"></span>'}</div><div class="tf"><span class="tf-l">Groupe</span>${!S.loaded.members && S.db ? '<span class="sk sk-l sk-w60" style="height:26px"></span>' : ''}<span class="tf-v"${!S.loaded.members && S.db ? ' hidden' : ''}>${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${dataReady() ? avancementHTML() : '<span class="sk sk-l sk-w70" style="height:26px"></span><span class="sk sk-l sk-w90"></span>'}</div><div class="tf tf-grp"><span class="tf-l">Groupe</span>${!S.loaded.members && S.db ? '<span class="sk sk-l sk-w60" style="height:26px"></span>' : ''}<span class="tf-v"${!S.loaded.members && S.db ? ' hidden' : ''}>${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
   if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
 }
 function editTrip(k){
@@ -889,7 +926,7 @@ function setView(v){
   closePop();
   S.navDir = VIEWS.indexOf(v) > VIEWS.indexOf(S.view) ? 1 : -1;
   S.view = v;
-  try { history.replaceState(null, '', '#' + v); } catch (e) {}
+  try { history.replaceState(history.state, '', '#' + v); } catch (e) {}
   renderTabs();
   /* Onglets collants : si on a défilé loin, on remonte au début du nouvel onglet (juste sous la barre) */
   { const bar = $('.bar'), pn = $('#panel'); if (bar && pn) { const bb = bar.getBoundingClientRect(), pt = pn.getBoundingClientRect().top; if (pt < bb.bottom - 1) window.scrollTo({top:Math.max(0, scrollY + pt - bb.height - 8), behavior:'instant'}); } }
@@ -922,14 +959,14 @@ function filtersHTML(withSort){
   </div></div>`;
 }
 function shellHTML(v){
-  if (v === 'galerie') return `${filtersHTML(true)}<div class="g-layout" style="margin-top:20px">
-    <div class="g-main"><div id="todo"></div><div class="grid" id="grid"></div></div>
+  if (v === 'galerie') return `<div id="todo"></div>${filtersHTML(true)}<div class="g-layout" style="margin-top:20px">
+    <div class="g-main"><div class="grid" id="grid"></div></div>
     <aside class="g-side" aria-label="Aperçu">
       <section class="side-card"><h3 class="side-t">Où sont-ils ?</h3><div id="mini-map"></div><p class="small muted">Clique sur un département pour l’explorer sur la carte.</p></section>
       <section class="side-olive" id="side-podium"></section>
     </aside></div>`;
   if (v === 'comparateur') return `${filtersHTML(false)}<div class="tbl-wrap" style="margin-top:20px" id="cmp-wrap"></div>
-    <p class="note" style="margin-top:12px">Les notes d’un logement apparaissent dès que tu l’as noté toi-même. Clique sur un titre de colonne pour trier.</p>`;
+    <p class="note" style="margin-top:12px">Les notes d’un logement apparaissent dès que tu l’as noté toi-même. <span class="kbd-only">Clique sur un titre de colonne pour trier.</span></p>`;
   if (v === 'podium') return `<div id="podium" class="sec-gap" style="gap:28px"></div>`;
   if (v === 'dates') return `<div id="dates" class="sec-gap" style="gap:22px"></div>`;
   return `<div class="map-layout"><div class="map-wrap"><div class="map-ctrl"><button type="button" class="btn btn-sm" id="map-reset" data-act="map-reset" hidden>Vue d’ensemble</button></div><div id="big-map"></div>
@@ -984,7 +1021,7 @@ function cardHTML(l){
   const eq = (l.equipments || []).slice(0, 4).join(' · ');
   const flipped = S.flipped.has(l.id);
   return `<article class="card${S.awayId === l.id ? ' card-away' : ''}${S.highlight === l.id ? ' hl' : ''}${flipped ? ' flipped' : ''}" data-k="${esc(l.id)}">
-    ${photoHTML(l, badgesHTML(l, s, true))}${l.status === 'reserve' ? '<span class="stamp stamp-sm" aria-label="Retenu">Retenu</span>' : ''}
+    ${photoHTML(l, badgesHTML(l, s, true))}${l.status === 'reserve' ? '<span class="stamp stamp-sm" aria-label="Réservé">Réservé</span>' : ''}
     <div class="cb">
       <div class="c-top"><div><h3 class="c-title">${esc(l.title || 'Sans titre')}</h3><p class="c-place">${esc(placeOf(l))}</p></div>${score}</div>
       <p class="facts">${esc(facts)}</p>
@@ -1015,7 +1052,7 @@ function emptyHTML(){
   if (!dataReady()) return Array.from({length:6}, skCard).join('') + '<span class="sr-only" role="status">Chargement du carnet…</span>';
   if (listingsArr().length) return `<div class="empty"><h3>Aucun logement ne correspond</h3><p>Change de département ou de statut pour en voir d’autres.</p><button type="button" class="btn" data-act="reset-filters">Voir tous les logements</button></div>`;
   return `<div class="empty">${IC.house}<h3>Le carnet est encore vide</h3>
-    <p>Trouve une annonce sur Airbnb, Abritel, Gîtes de France ou ailleurs, puis ajoute-la ici avec son lien. Colle le texte ou une capture d’écran de l’annonce : la fiche se remplit toute seule.</p>
+    <p>Trouve une annonce sur Airbnb, Abritel, Gîtes de France ou ailleurs, puis ajoute-la ici. Le plus simple : une capture d’écran de l’annonce (ou son texte copié) remplit la fiche toute seule ; le lien sert à la retrouver.</p>
     ${canEdit() ? '<button type="button" class="btn btn-accent" data-act="add">Ajouter le premier logement</button>' : ''}</div>`;
 }
 /* « Ce qu'il te reste à noter » et relance des retardataires */
@@ -1041,7 +1078,9 @@ function setDispo(v){
   S.listings = Object.assign({}, S.listings, {[l.id]:Object.assign({}, l, {dispo})});
   const f = $('#dw-facts'); if (f) f.innerHTML = dwFacts(S.listings[l.id]);
   const b = $(`#dw-facts [data-dispo="${v}"]`); if (b) b.focus({preventScroll:true});
-  patchDoc('listings/' + l.id, {dispo}).then(() => toast(v === 'oui' ? 'Noté : libre cette semaine-là' : v === 'non' ? 'Noté : pas libre cette semaine-là' : 'Disponibilité à vérifier'));
+  patchDoc('listings/' + l.id, {dispo}).then(() => toast(v === 'oui' ? 'Noté : libre cette semaine-là' : v === 'non' ? 'Noté : pas libre cette semaine-là' : 'Disponibilité à vérifier'), () => {
+    const cur = S.listings[l.id]; if (cur) { S.listings = Object.assign({}, S.listings, {[l.id]:Object.assign({}, cur, {dispo:l.dispo})}); const ff = $('#dw-facts'); if (ff && S.openId === l.id) ff.innerHTML = dwFacts(S.listings[l.id]); schedule(); }
+  });
   schedule();
 }
 async function nudge(){
@@ -1292,10 +1331,10 @@ function whoHTML(){
   const ids = memberIds().sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'fr'));
   if (!ids.length) return '';
   const all = listingsArr(); const n = all.length;
-  const lk = id => (id && S.listings[id]) ? `<button type="button" class="link-btn" style="color:var(--ink)" data-open="${esc(id)}">${esc(S.listings[id].title)}</button>` : '<span class="muted">–</span>';
+  const lk = (id, u) => (id && S.listings[id] && u !== S.myId && !canSee(id)) ? '<span class="muted">caché</span>' : (id && S.listings[id]) ? `<button type="button" class="link-btn" style="color:var(--ink)" data-open="${esc(id)}">${esc(S.listings[id].title)}</button>` : '<span class="muted">–</span>';
   return `<section class="sec-gap"><h2 class="h2">Qui a voté quoi</h2><div class="tbl-wrap"><table class="who"><thead><tr><th scope="col">Personne</th><th scope="col">Logements notés</th><th scope="col">Coup de cœur</th><th scope="col">Veto</th></tr></thead><tbody>` +
     ids.map(u => { const v = votesOf(u); const done = all.filter(l => hasCompleted(u, l.id)).length;
-      return `<tr><th scope="row"><span class="nm">${avatar(u, 'av-sm')}${esc(nameOf(u))}</span></th><td class="num">${done} / ${n}</td><td>${lk(v.heart)}</td><td>${lk(v.veto)}</td></tr>`; }).join('') +
+      return `<tr><th scope="row"><span class="nm">${avatar(u, 'av-sm')}${esc(nameOf(u))}</span></th><td class="num">${done} / ${n}</td><td>${lk(v.heart, u)}</td><td>${lk(v.veto, u)}</td></tr>`; }).join('') +
     '</tbody></table></div></section>';
 }
 function fillPodium(changed){
@@ -1310,8 +1349,8 @@ function fillPodium(changed){
     else acts += '<button type="button" class="btn" data-act="reopen">Rouvrir les votes</button>';
   }
   if (c.closed && all.length) acts += '<button type="button" class="btn" data-act="replay">Revoir la révélation</button>';
-  if (unlocked && all.length && S.downloads) acts += '<button type="button" class="btn" data-act="dl-md">Récap (.md)</button><button type="button" class="btn" data-act="dl-csv">Notes (.csv)</button>';
-  const head = `<div class="pod-head"><div><p class="eyebrow">${c.closed ? 'Résultat final' : 'Classement provisoire'}</p><h2 class="h2" style="font-size:34px">${c.closed ? 'Votes clos le ' + esc(fmtLong(c.closedAt)) : 'Le podium'}</h2></div><div class="pod-actions">${acts}</div></div>`;
+  if (unlocked && all.length && S.downloads) acts += '<button type="button" class="btn" data-act="dl-md">Télécharger le récap</button><button type="button" class="btn" data-act="dl-csv">Tableau des notes</button>';
+  const head = `<div class="pod-head"><div><p class="eyebrow">${c.closed ? 'Résultat final · votes clos le ' + esc(fmtLong(c.closedAt)) : 'Classement provisoire'}</p><h2 class="h2" style="font-size:34px">${c.closed ? (() => { const w = ranking()[0]; return w && w.l ? '🏆 ' + esc(w.l.title) : 'Le podium'; })() : 'Le podium'}</h2></div><div class="pod-actions">${acts}</div></div>`;
   if (!all.length) { el.innerHTML = head + '<div class="lock-card"><h3 class="h2">Pas encore de podium</h3><p class="muted">Il se remplira quand des logements auront été ajoutés et notés.</p></div>' + whoHTML(); el._h = null; return; }
   if (!unlocked) {
     const todo = all.filter(l => !hasCompleted(S.myId, l.id)); const done = all.length - todo.length;
@@ -1343,7 +1382,7 @@ function openListing(id){
   if (!S.listings[id]) return;
   const wasOpen = !!S.openId;
   S.openId = id; S.dwConfirm = false; S.highlight = null;
-  if (!wasOpen) S.drawerTrigger = document.activeElement;
+  if (!wasOpen) { S.drawerTrigger = document.activeElement; pushOverlay('dw'); }
   const w = $('#drawer-wrap'), dw = $('#drawer');
   dw.innerHTML = drawerHTML(S.listings[id]);
   if (canSee(id)) S.unlockedSeen.add(id);
@@ -1361,9 +1400,12 @@ function openListing(id){
     anim($('.dw-photo .ph > *', dw), [{transform:'scale(1.12)', opacity:.3}, {transform:'none', opacity:1}], {duration:900, easing:EASE_OUT});
     $$('.dw-pad > *', dw).forEach((el, i) => anim(el, [{opacity:0, transform:'translateY(18px)'}, {opacity:1, transform:'none'}], {duration:480, delay:150 + i * 70, easing:EASE_OUT, fill:'backwards'}));
   }
+  if (S.wantVote) { S.wantVote = false; if (canVote() && !hasCompleted(S.myId, id)) setTimeout(goVote, wasOpen ? 0 : 500); }
 }
-function closeDrawer(){
+function goVote(){ const v = $('#dw-vote'), sc = $('#drawer .dw-scroll'); if (!v || !sc) return; sc.scrollTo({top:sc.scrollTop + v.getBoundingClientRect().top - sc.getBoundingClientRect().top - 12, behavior:M() ? 'smooth' : 'auto'}); }
+function closeDrawer(fromPop){
   if (!S.openId) return;
+  if (fromPop !== true) popOverlay('dw');
   const w = $('#drawer-wrap'), dw = $('#drawer'); w.classList.remove('open');
   const lastId = S.openId;
   S.openId = null; $('#app').inert = false;
@@ -1387,14 +1429,14 @@ function dwPhotoHTML(l){
 function drawerHTML(l){
   return `<button type="button" class="icon-btn dw-close" id="dw-close" aria-label="Fermer la fiche">${IC.x}</button>
   <div class="dw-scroll">
-    <div class="dw-photo">${dwPhotoHTML(l)}${l.status === 'reserve' ? '<span class="stamp" aria-label="Retenu">Retenu</span>' : ''}</div>
+    <div class="dw-photo">${dwPhotoHTML(l)}${l.status === 'reserve' ? '<span class="stamp" aria-label="Réservé">Réservé</span>' : ''}</div>
     <div class="dw-pad">
       <div id="dw-head">${dwHead(l)}</div>
       <div id="dw-facts">${dwFacts(l)}</div>
       <section id="dw-vote" aria-label="Mon vote">${dwVote(l)}</section>
       <section id="dw-others" aria-label="Les notes du groupe">${dwOthers(l)}</section>
       <section id="dw-comments" aria-labelledby="dw-ct"><h3 class="sec-t" id="dw-ct">Commentaires</h3><div id="dw-clist">${dwComments(l)}</div>
-        ${canEdit() ? `<form class="cform" id="dw-cform"><label for="dw-ctext" class="sr-only">Ton commentaire</label><textarea id="dw-ctext" class="input" rows="2" maxlength="1000" placeholder="Une remarque, une question pour le propriétaire…">${esc(store.get('gite-cdraft-' + l.id) || '')}</textarea><div class="row"><span class="hint">Ctrl + Entrée pour envoyer</span><button type="submit" class="btn btn-sm btn-accent">Envoyer</button></div></form>` : ''}
+        ${canEdit() ? `<form class="cform" id="dw-cform"><label for="dw-ctext" class="sr-only">Ton commentaire</label><textarea id="dw-ctext" class="input" rows="2" maxlength="1000" placeholder="Une remarque, une question pour le propriétaire…">${esc(store.get('gite-cdraft-' + l.id) || '')}</textarea><div class="row"><span class="hint kbd-only">Ctrl + Entrée pour envoyer</span><button type="submit" class="btn btn-sm btn-accent">Envoyer</button></div></form>` : ''}
       </section>
     </div>
   </div>`;
@@ -1408,6 +1450,7 @@ function dwHead(l){
     <h2 class="dw-title" id="dw-title">${esc(l.title || 'Sans titre')}</h2>
     <p class="muted">${esc(placeOf(l))}</p>
     <div class="dw-acts">
+      ${canVote() && !hasCompleted(S.myId, l.id) ? `<button type="button" class="btn btn-sm btn-accent" data-act="go-vote">Noter ce logement ↓</button>` : ''}
       ${url ? `<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Voir l’annonce ${IC.ext}</a>` : ''}
       ${canEdit() ? `<button type="button" class="btn btn-sm" data-act="edit" data-id="${esc(l.id)}">Modifier</button>` : ''}
       ${canDel ? (S.dwConfirm ? `<span class="confirm"><span>Supprimer définitivement ?</span><button type="button" class="btn btn-sm btn-accent" data-act="del-confirm">Supprimer</button><button type="button" class="btn btn-sm" data-act="del-cancel">Annuler</button></span>` : `<button type="button" class="btn btn-sm btn-ghost" data-act="del">Supprimer</button>`) : ''}
@@ -1416,7 +1459,7 @@ function dwHead(l){
 function dwFacts(l){
   const s = st(l.id);
   const nn = nightsOf(l), ppn = perPN(l);
-  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Prix par nuit', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn)], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Salles de bain', l.bathrooms != null && l.bathrooms !== '' ? l.bathrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
+  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Prix par nuit', ppn == null ? '–' : fmtEur(ppn)], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Salles de bain', l.bathrooms != null && l.bathrooms !== '' ? l.bathrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
   const eq = (l.equipments || []);
   const wk = (S.trip || {}).week && WEEKS.find(x => x.id === S.trip.week); const dv = dispoOf(l);
   const dispoBlock = wk ? `<div class="dispo"><span class="dispo-q">Libre la semaine retenue (${esc(weekLabel(wk))}) ?</span>${canEdit() ? `<div class="dispo-b" role="group" aria-label="Disponibilité">${[['oui', 'Oui'], ['non', 'Non'], ['', 'À vérifier']].map(([k, t]) => `<button type="button" class="btn btn-sm${(dv || '') === k ? ' on' : ''}" data-dispo="${k}" aria-pressed="${(dv || '') === k}">${t}</button>`).join('')}</div>` : `<strong>${dv === 'oui' ? 'Oui' : dv === 'non' ? 'Non' : 'À vérifier'}</strong>`}${l.dispo && l.dispo.week === wk.id && l.dispo.by ? `<span class="small muted">Vérifié par ${esc(nameOf(l.dispo.by))} ${esc(relTime(l.dispo.at))}</span>` : ''}</div>` : '';
@@ -1426,7 +1469,7 @@ function dwFacts(l){
     ${eq.length ? `<div class="eqs">${eq.map(e => `<span>${esc(e)}</span>`).join('')}</div>` : ''}
     ${l.note ? `<p class="quote">${esc(l.note)}</p>` : ''}
     <p class="small muted">Proposé par ${esc(nameOf(l.addedBy))}${l.createdAt ? ' le ' + esc(fmtDate(l.createdAt)) : ''}</p>
-    ${marksHTML(s)}
+    ${canSee(l.id) ? marksHTML(s) : ''}
   </div>`;
 }
 function dwVote(l){
@@ -1444,9 +1487,9 @@ function dwVote(l){
   if (v.veto && v.veto !== l.id && S.listings[v.veto]) hints.push('Ton veto actuel : ' + S.listings[v.veto].title + '.');
   if (v.heart && !S.listings[v.heart]) hints.push('Le logement de ton coup de cœur a été supprimé : tu peux le redonner.');
   if (v.veto && !S.listings[v.veto]) hints.push('Le logement de ton veto a été supprimé : tu peux le redonner.');
-  hints.push('Un coup de cœur et un veto par personne : en choisir un autre le supprime d’ici.');
+  hints.push('Un coup de cœur et un veto par personne : en choisir un autre le supprime d’ici. Un veto fait passer le logement après tous les autres au classement.');
   return head + (closed ? '<p class="muted" style="margin-top:6px">Les votes sont clos.</p>' : '') +
-    `<div class="vrows">${rows}</div>
+    `<p class="small muted v-scale">De 1 (pas du tout) à 10 (parfait)</p><div class="vrows">${rows}</div>
     <div class="vtoggles">
       <button type="button" class="tgl tgl-heart${heartOn ? ' on' : ''}" data-heart="${esc(l.id)}" aria-pressed="${heartOn}"${closed ? ' disabled' : ''}>${IC.heart}<span>${heartOn ? 'Mon coup de cœur' : 'En faire mon coup de cœur'}</span></button>
       <button type="button" class="tgl tgl-veto${vetoOn ? ' on' : ''}" data-veto="${esc(l.id)}" aria-pressed="${vetoOn}"${closed ? ' disabled' : ''}>${IC.ban}<span>${vetoOn ? 'Mon veto' : 'Mettre mon veto'}</span></button>
@@ -1455,11 +1498,14 @@ function dwVote(l){
     ${vetoOn ? `<div class="frow why-in"><label for="dw-vwhy">Pourquoi ce veto ? <span class="opt">facultatif</span></label><input id="dw-vwhy" class="input" maxlength="160" value="${esc(v.vetoWhy || '')}" placeholder="Trop loin, pas assez de chambres…"${closed ? ' disabled' : ''}></div>` : ''}
     <p class="small muted" style="margin-top:10px">${esc(hints.join(' '))}</p>`;
 }
-/* Couleur d'une note : du bleu froid (1) à l'orange chaud (10). */
-const heat = n => typeof n === 'number' ? `hsl(${Math.round(208 - (n - 1) / 9 * 182)} 58% 46%)` : '';
+/* Couleur d'une note, dans la palette du site : brun doux (1) → olive (5-6) → terracotta (10). */
+const heat = n => {
+  if (typeof n !== 'number') return '';
+  return n <= 5 ? `color-mix(in oklab, var(--olive-bg) ${Math.round((n - 1) / 4 * 100)}%, var(--muted))` : `color-mix(in oklab, var(--accent) ${Math.round((n - 5) / 5 * 100)}%, var(--olive-bg))`;
+};
 function voteRowInner(c, cur, closed){
   let dots = '';
-  for (let i = 1; i <= 10; i++) dots += `<button type="button" class="dot${cur >= i ? ' f' : ''}" style="--i:${i - 1}" data-score="${i}" data-c="${esc(c.id)}" aria-pressed="${cur === i}" aria-label="${i} sur 10"${closed ? ' disabled' : ''}></button>`;
+  for (let i = 1; i <= 10; i++) dots += `<button type="button" class="dot${cur >= i ? ' f' : ''}" style="--i:${i - 1}" data-score="${i}" data-c="${esc(c.id)}" aria-pressed="${cur === i}" aria-label="${i} sur 10"${closed ? ' disabled' : ''}><span aria-hidden="true">${i}</span></button>`;
   return `<span class="vl" id="vl-${esc(c.id)}">${esc(c.label)}</span><div class="dots" role="group" aria-labelledby="vl-${esc(c.id)}">${dots}</div><span class="vv">${cur == null ? '–' : cur}</span>`;
 }
 function paintVoteRow(cid, prev){
@@ -1477,7 +1523,7 @@ function dwOthers(l){
   if (!canSee(l.id)) {
     const sc = (votesOf(S.myId).scores || {})[l.id] || {};
     const left = applicable(S.myId).filter(c => typeof sc[c.id] !== 'number').length;
-    const msg = !S.members[S.myId] ? 'Inscris-toi et note ce logement pour voir les notes des autres.' : (left > 1 ? `Note encore ${left} critères pour voir les notes des autres.` : 'Note le dernier critère pour voir les notes des autres.');
+    const msg = !S.members[S.myId] ? 'Inscris-toi et note ce logement pour voir les notes, coups de cœur et veto des autres.' : (left > 1 ? `Note encore ${left} critères pour voir les notes, coups de cœur et veto des autres.` : 'Note le dernier critère pour voir les notes, coups de cœur et veto des autres.');
     return h + `<div class="locked">${IC.lock}<p>${msg} Ça évite de s’influencer.</p><p class="small muted">${s.voted} / ${s.total} ont déjà noté ce logement.</p></div>`;
   }
   const cs = crits();
@@ -1502,7 +1548,7 @@ function updateDrawer(){
   const facts = $('#dw-facts'); if (facts) facts.innerHTML = dwFacts(l);
   const dph = $('.dw-photo'); if (dph) {
     const has = $('.stamp', dph);
-    if (l.status === 'reserve' && !has) { dph.insertAdjacentHTML('beforeend', '<span class="stamp" aria-label="Retenu">Retenu</span>'); if (S.stampAnim === l.id) { S.stampAnim = null; if (M() && GM.stamp) GM.stamp($('.stamp', dph), .1); } }
+    if (l.status === 'reserve' && !has) { dph.insertAdjacentHTML('beforeend', '<span class="stamp" aria-label="Réservé">Réservé</span>'); if (S.stampAnim === l.id) { S.stampAnim = null; if (M() && GM.stamp) GM.stamp($('.stamp', dph), .1); } }
     else if (l.status !== 'reserve' && has) has.remove();
   }
   const vote = $('#dw-vote'); if (vote && !inside(vote) && !S.myVoteDirty) { const save = $('#dw-save') ? $('#dw-save').textContent : ''; vote.innerHTML = dwVote(l); setSave(save); }
@@ -1537,10 +1583,17 @@ function updateOthersOnly(){
 function toggleMark(lid, kind){
   if (!canVote()) return;
   const other = kind === 'heart' ? 'veto' : 'heart';
+  let msg = '';
   editMyVote(v => {
     if (v[kind] === lid) { v[kind] = null; v[kind + 'Why'] = ''; }
-    else { v[kind] = lid; v[kind + 'Why'] = ''; if (v[other] === lid) { v[other] = null; v[other + 'Why'] = ''; } }
+    else {
+      const was = v[kind] && v[kind] !== lid && S.listings[v[kind]] ? S.listings[v[kind]].title : '';
+      v[kind] = lid; v[kind + 'Why'] = '';
+      if (v[other] === lid) { v[other] = null; v[other + 'Why'] = ''; msg = kind === 'veto' ? 'Veto posé (ton coup de cœur ici est retiré)' : 'Coup de cœur posé (ton veto ici est retiré)'; }
+      else if (was) msg = (kind === 'veto' ? 'Veto déplacé : il n’est plus sur « ' : 'Coup de cœur déplacé : il n’est plus sur « ') + was + ' »';
+    }
   });
+  if (msg) toast(msg);
   saveVote(true);
   const factsEl = $('#dw-facts'), voteEl = $('#dw-vote'); const hF = factsEl ? factsEl.offsetHeight : null, hV = voteEl ? voteEl.offsetHeight : null;
   const sc = $('.dw-scroll'), sel = `#dw-vote [data-${kind}="${CSS.escape(lid)}"]`;
@@ -1570,7 +1623,7 @@ function openListingModal(id){
   if (!canEdit()) { toast('Ton accès ne permet pas d’ajouter de logement.'); return; }
   if (!S.members[S.myId]) { openSettings(true); return; }
   const l = id ? S.listings[id] : null;
-  ML.shots = []; ML.editId = id || null; ML.ai = false; ML.touched = {}; ML.photos = photosOf(l || {}).map(id => ({type:'existing', id}));
+  ML.shots = []; ML.dirty = false; ML.editId = id || null; ML.orig = l ? JSON.parse(JSON.stringify(l)) : null; ML.ai = false; ML.touched = {}; ML.photos = photosOf(l || {}).map(id => ({type:'existing', id}));
   ML.lat = l ? num(l.lat) : null; ML.lng = l ? num(l.lng) : null;
   openModal(listingModalHTML(l || {}));
   renderShots(); renderPhotoZone(); checkDup();
@@ -1589,7 +1642,7 @@ function listingModalHTML(l){
       <h3 class="step-h" id="ml-s1">${ML.editId ? 'Recharger depuis l’annonce' : '1. Colle ce que tu as trouvé'}</h3>
       ${fieldHTML('li-url', 'Lien de l’annonce', `<input id="li-url" class="input" type="url" inputmode="url" placeholder="https://www.airbnb.fr/rooms/…" value="${v('url')}">`)}
       <div class="dup" id="li-dup" hidden role="status"></div>
-      <div class="drop" id="li-drop"><input type="file" id="li-shots" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only"><label for="li-shots" class="btn btn-sm btn-accent">Ajouter des captures d’écran</label><span class="hint">ou glisse-les ici, ou colle-les avec Ctrl + V</span></div>
+      <div class="drop" id="li-drop"><input type="file" id="li-shots" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only"><label for="li-shots" class="btn btn-sm btn-accent">Ajouter des captures d’écran</label><span class="hint kbd-only">ou glisse-les ici, ou colle-les avec Ctrl + V</span></div>
       <p class="hint">Description, équipements, prix, photos : le site lit le texte de tes captures et remplit la fiche tout seul. Une capture sans texte devient la photo de la fiche.</p>
       <div class="shots" id="li-shot-list"></div>
       <p class="ai-st" id="li-ai-st" role="status"></p>
@@ -1744,7 +1797,7 @@ function runParse(){
   };
   setF('li-title', r.title); setF('li-price', r.price); setF('li-dates', r.priceDates);
   setF('li-commune', r.commune); setF('li-dept', r.dept);
-  if (r.commune && !r.dept) lookupDept(0);
+  if (r.commune && (!r.dept || r.deptByName)) lookupDept(0);
   setF('li-bedrooms', r.bedrooms); setF('li-bathrooms', r.bathrooms); setF('li-beds', r.beds);
   setF('li-eq', r.equipments && r.equipments.join(', '));
   autoSource();
@@ -1796,9 +1849,11 @@ function parseListing(text, lines){
     if (cm && !/^(logement|maison|villa|appartement|gîte|gite|chambre|location)\b/i.test(cm[1])) r.commune = cm[1].trim();
   }
   if (!r.dept) {
-    const nt = ' ' + deaccent(t).replace(/[^A-Za-z0-9]+/g, ' ') + ' '; let best = null;
+    /* Les noms de région (« Auvergne-Rhône-Alpes », « Pays de la Loire »…) contiennent des noms de départements : on les retire d'abord. */
+    const noReg = deaccent(t).replace(/auvergne[\s-]*rhone[\s-]*alpes|provence[\s-]*alpes[\s-]*cote[\s-]*d.?azur|bourgogne[\s-]*franche[\s-]*comte|centre[\s-]*val[\s-]*de[\s-]*loire|pays[\s-]*de[\s-]*la[\s-]*loire|hauts[\s-]*de[\s-]*france|nouvelle[\s-]*aquitaine|grand[\s-]*est|ile[\s-]*de[\s-]*france/gi, ' ');
+    const nt = ' ' + noReg.replace(/[^A-Za-z0-9]+/g, ' ') + ' '; let best = null;
     DEP_LIST.forEach(d => { const k = ' ' + deaccent(d.n).replace(/[^A-Za-z0-9]+/g, ' ') + ' '; if (nt.includes(k) && (!best || k.length > best.k.length)) best = {c:d.c, k}; });
-    if (best) r.dept = best.c;
+    if (best) { r.dept = best.c; r.deptByName = true; }
   }
   // Équipements reconnus
   const eq = EQ.filter(e => e[1].test(low)).map(e => e[0]); if (eq.length) r.equipments = eq.slice(0, 10);
@@ -1850,11 +1905,17 @@ async function saveListing(){
   };
   const id = ML.editId || S.db.collection('listings').doc().id;
   try {
-    await writeDoc('listings/' + id, data);
+    if (prev && ML.orig) {
+      /* Modification : on n'envoie que ce qui a changé dans le formulaire (le reste, comme la dispo ou un statut changé par quelqu'un d'autre, est gardé). */
+      const same = (a, b) => JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b);
+      const patch = {updatedAt:data.updatedAt, updatedBy:data.updatedBy};
+      Object.keys(data).forEach(k => { if (!['updatedAt', 'updatedBy', 'addedBy', 'createdAt'].includes(k) && !same(data[k], ML.orig[k])) patch[k] = data[k]; });
+      await patchDoc('listings/' + id, patch);
+    } else await writeDoc('listings/' + id, data);
     if (prev && S.assets) storedOnly(photosOf(prev)).filter(id => !photos.includes(id)).forEach(id => S.assets.delete(id).catch(() => {}));
-    closeModal();
-    toast(prev ? 'Fiche mise à jour' : 'Logement ajouté au carnet');
-    if (!prev) { S.highlight = id; if (S.view !== 'galerie') setView('galerie'); setTimeout(() => { S.highlight = null; schedule(); }, 2600); }
+    closeModal(true);
+    toast(prev ? 'Fiche mise à jour' : 'Logement ajouté : à toi de le noter');
+    if (!prev) { if (S.view !== 'galerie') setView('galerie'); setTimeout(() => { if (S.listings[id]) { S.wantVote = true; openListing(id); } }, 380); }
   } catch (e) {
     btn.disabled = false; btn.textContent = ML.editId ? 'Enregistrer' : 'Ajouter au carnet';
     $('#li-save-err').textContent = 'L’enregistrement a échoué. Réessaie.';
@@ -1866,12 +1927,11 @@ function openSettings(welcome){
   if (!canEdit()) return;
   const me = S.members[S.myId] || {}; const c = cfg(); const owner = S.isOwner && !welcome;
   const html = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="st-title">
-    <div class="mc-head"><h2 class="mc-t" id="st-title">${welcome ? 'Bienvenue dans le carnet' : 'Réglages'}</h2>${welcome ? '' : `<button type="button" class="icon-btn" data-close aria-label="Fermer">${IC.x}</button>`}</div>
+    <div class="mc-head"><h2 class="mc-t" id="st-title">${welcome ? 'Bienvenue dans le carnet' : 'Mon profil et le carnet'}</h2>${welcome ? '' : `<button type="button" class="icon-btn" data-close aria-label="Fermer">${IC.x}</button>`}</div>
     <form id="f-settings" class="mc-body" data-welcome="${welcome ? 1 : ''}">
-      ${welcome ? '<p class="lead">On choisit ensemble où partir cet été. Dis-nous comment t’appeler : les autres verront qui a proposé et noté quoi.</p>' : ''}
+      ${welcome ? '<p class="lead">On choisit ensemble où partir cet été. Dis-nous comment t’appeler : les autres verront qui a proposé et noté quoi.</p><ol class="steps-hint"><li><strong>Note chaque logement</strong> de 1 à 10 : les notes des autres apparaissent une fois que tu as noté.</li><li><strong>Un coup de cœur et un veto</strong> pour toute la sélection.</li><li><strong>Tes disponibilités</strong> dans l’onglet Dates.</li></ol>' : ''}
       <fieldset class="fs"><legend>Mon profil</legend>
         ${fieldHTML('st-name', 'Prénom', `<input id="st-name" class="input" required maxlength="30" autocomplete="given-name" value="${esc(me.name || firstName(S.meName))}"><span class="err" id="st-name-err" hidden>Indique ton prénom.</span>`)}
-        ${welcome ? '' : `<label class="check"><input type="checkbox" id="st-motion"${motion ? ' checked' : ''}><span>Animations activées<small>Coupe-les si le mouvement te gêne. Ce réglage ne vaut que pour toi.</small></span></label>`}
       </fieldset>
       ${owner ? `<fieldset class="fs" id="st-pend-fs" hidden><legend>Demandes d’accès</legend><p class="hint">Ces personnes se sont connectées avec Google. Valide uniquement celles que tu connais.</p><div class="sec-gap" style="gap:10px" id="st-pend"></div></fieldset>
       <fieldset class="fs"><legend>Le carnet</legend>${fieldHTML('st-title-in', 'Titre', `<input id="st-title-in" class="input" maxlength="50" value="${esc(c.title)}">`)}</fieldset>
@@ -1880,6 +1940,17 @@ function openSettings(welcome){
     </form></div>`;
   openModal(html, {locked:welcome});
   if (owner) loadPending();
+}
+/* Demandes d'accès en attente : pastille sur la roue + bouton dans son menu. */
+function refreshPending(announce){
+  if (!S.isOwner || !SB) return;
+  SB.from('pending').select('user_id', {count:'exact', head:true}).then(r => {
+    S.pendingCount = r.count || 0;
+    const g = $('#gear-btn'); if (!g) return; let b = $('.gear-badge', g);
+    if (S.pendingCount) { if (!b) { b = document.createElement('span'); b.className = 'gear-badge'; g.append(b); } b.textContent = S.pendingCount; g.setAttribute('aria-label', 'Réglages : ' + (S.pendingCount > 1 ? S.pendingCount + ' demandes d’accès' : '1 demande d’accès')); }
+    else { if (b) b.remove(); g.setAttribute('aria-label', 'Réglages'); }
+    if (announce && S.pendingCount) setTimeout(() => toast(S.pendingCount > 1 ? S.pendingCount + ' personnes attendent ta validation (roue en haut à droite)' : '1 personne attend ta validation (roue en haut à droite)'), 1500);
+  }, () => {});
 }
 async function loadPending(){
   const {data, error} = await SB.from('pending').select('user_id,email,name').order('created_at');
@@ -1892,7 +1963,7 @@ async function decide(uid, ok, btn){
   if (btn) btn.disabled = true;
   const {error} = await SB.rpc('approve_user', {uid, ok});
   if (error) { if (btn) btn.disabled = false; toast('Action impossible, réessaie'); return; }
-  toast(ok ? 'Personne validée' : 'Demande refusée'); loadPending();
+  toast(ok ? 'Personne validée : elle peut entrer dans le carnet' : 'Demande refusée'); loadPending(); refreshPending();
 }
 let critSeq = 0;
 function critRow(c){
@@ -1923,14 +1994,32 @@ async function saveSettings(form){
 function openModal(html, opts){
   const m = $('#modal');
   S.modalTrigger = document.activeElement;
+  if (m.hidden) pushOverlay('modal');
   m.innerHTML = html; m.dataset.locked = opts && opts.locked ? '1' : '';
   m.hidden = false; void m.offsetWidth; m.classList.add('open');
   $('#app').inert = true; $('#drawer-wrap').inert = true;
   setTimeout(() => { const f = m.querySelector('input:not(.sr-only),textarea,select,button:not([data-close])'); if (f) f.focus(); }, 40);
 }
-function closeModal(force){
+/* Geste retour de l'iPhone (ou bouton Précédent) : ferme la fiche ou la fenêtre au lieu de quitter le carnet. */
+function pushOverlay(kind){ try { history.pushState({gite:kind}, '', location.href); } catch (e) {} }
+function popOverlay(kind){ try { if (history.state && history.state.gite === kind) { S.ignorePop = (S.ignorePop || 0) + 1; history.back(); } } catch (e) {} }
+addEventListener('popstate', () => {
+  if (S.ignorePop) { S.ignorePop--; return; }
+  if (!$('#modal').hidden) { closeModal(false, true); if (!$('#modal').hidden) pushOverlay('modal'); return; }
+  if (S.openId) closeDrawer(true);
+});
+function askDiscard(){
+  const e = $('#li-save-err'); if (!e) return;
+  e.innerHTML = '<span class="confirm"><span>Abandonner ta saisie ?</span><button type="button" class="btn btn-sm btn-accent" data-act="discard">Abandonner</button><button type="button" class="btn btn-sm" data-act="keep-edit">Continuer</button></span>';
+  const b = $('[data-act="keep-edit"]', e); if (b) b.focus({preventScroll:true});
+  e.scrollIntoView({block:'nearest', behavior:M() ? 'smooth' : 'auto'});
+}
+function closeModal(force, fromPop){
   const m = $('#modal'); if (m.hidden) return;
   if (m.dataset.locked && !force) return;
+  /* Toucher le fond ou Échap pendant une saisie : on demande avant de tout perdre. */
+  if (!force && $('#f-listing') && (ML.dirty || ML.shots.length || ML.photos.some(p => p.type !== 'existing'))) { askDiscard(); return; }
+  if (!fromPop) popOverlay('modal');
   if (ML.ctl) ML.ctl.abort();
   ML.shots.forEach(s => URL.revokeObjectURL(s.url)); ML.photos.forEach(p => { if (p.type === 'file') URL.revokeObjectURL(p.url); });
   ML.shots = []; ML.photos = [];
@@ -1965,13 +2054,13 @@ async function playReveal(){
   $('#rv-done').hidden = true; $('#rv-skip').hidden = false;
   ov.hidden = false; void ov.offsetWidth; ov.classList.add('open');
   $('#app').inert = true;
-  $('#rv-skip').focus();
+  $('#rv-skip').focus({preventScroll:true}); $('#reveal').scrollTop = 0;
   /* État final, posé de la même façon quand la séquence va au bout, quand on la passe ou quand les animations sont coupées */
   const finalState = () => {
     $$('.rv-slot', slots).forEach(s => { s.classList.add('in'); const n = s.querySelector('[data-score]'); if (n) n.textContent = fmtScore(num(n.dataset.score)); });
     const w = slots.querySelector('[data-rank="1"]'); if (w) w.classList.add('win');
     $('#rv-title').textContent = top[0].l.title;
-    $('#rv-skip').hidden = true; $('#rv-done').hidden = false; $('#rv-done').focus();
+    $('#rv-skip').hidden = true; $('#rv-done').hidden = false; $('#rv-done').focus({preventScroll:true}); $('#reveal').scrollTop = 0;
     revealing = false; revealSkip = null;
   };
   if (M() && GM.reveal) {
@@ -2118,7 +2207,7 @@ function bindStatic(){
     if (d.heart) return toggleMark(d.heart, 'heart');
     if (d.veto) return toggleMark(d.veto, 'veto');
     if (d.pinlid) { const pl = S.listings[d.pinlid]; if (S.ptype === 'touch' && pl && t.id !== 'map-tip' && t.closest('#big-map') && S.mapSel === pl.dept && tipPin !== t) { showPinTip(t); return; } hidePinTip(); return pinGo(d.pinlid); }
-    if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; return openListing(d.open); }
+    if (d.open) { if (t.closest('.modal')) return; S.clickSrc = t; S.wantVote = !!t.closest('.todo-l'); return openListing(d.open); }
     if (d.trip) return editTrip(d.trip);
     if (d.pickDep) return selectDep(d.pickDep);
     if (d.dep) { if (t.closest('.fr-big')) return selectDep(d.dep); S.mapSel = d.dep; lastView = null; S.view = 'galerie'; setView('carte'); return; }
@@ -2149,6 +2238,9 @@ function bindStatic(){
       case 'google': return googleLogin();
       case 'recheck': return recheck();
       case 'approve': case 'reject': return decide(d.uid, d.act === 'approve', t);
+      case 'go-vote': return goVote();
+      case 'discard': return closeModal(true);
+      case 'keep-edit': { const e = $('#li-save-err'); if (e) e.textContent = ''; return; }
       case 'logout': SB.auth.signOut().finally(() => location.reload()); return;
       case 'nudge': nudge(); return;
       case 'news-toggle': { S.newsOpen = !S.newsOpen; const n = $('#news'); n.classList.toggle('open', S.newsOpen); t.setAttribute('aria-expanded', String(S.newsOpen)); if (S.newsOpen) $$('li', n).forEach((li, i) => anim(li, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:260, delay:i * 30, easing:EASE_OUT, fill:'backwards'})); return; }
@@ -2226,8 +2318,9 @@ function bindStatic(){
   document.addEventListener('focusin', e => { const pin = e.target.closest && e.target.closest('#big-map .pin'); if (pin && S.kbd) { const l = S.listings[pin.dataset.pinlid]; if (l && S.mapSel === l.dept) showPinTip(pin); } });
   document.addEventListener('focusout', e => { if (S.ptype === 'touch') return; if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
   let hiddenAt = 0;
-  const resync = () => { if (S.db && S.db.refresh) S.db.refresh().catch(() => {}); };
-  document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 3000) resync(); });
+  const resync = () => { if (S.myVoteDirty) flushVote(); refreshPending(); if (S.pendingSession && !$('#lg-wait').hidden) recheck(true); if (S.db && S.db.refresh) S.db.refresh().catch(() => {}); };
+  addEventListener('pagehide', () => { if (S.myVoteDirty) flushVote(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); if (S.myVoteDirty) flushVote(); } else if (hiddenAt && Date.now() - hiddenAt > 3000) resync(); });
   addEventListener('online', resync);
   addEventListener('pageshow', e => { if (e.persisted) resync(); });
   document.addEventListener('keydown', () => { S.kbd = true; }, true);
@@ -2249,6 +2342,7 @@ function bindStatic(){
     else if (t.id === 'li-dept') { ML.lat = null; ML.lng = null; }
   });
   document.addEventListener('input', e => {
+    if (e.target.closest && e.target.closest('#f-listing')) ML.dirty = true;
     if (e.target.id === 'li-url') { autoSource(); checkDup(); }
     if (e.target.id === 'li-text') { clearTimeout(ML.tTimer); ML.tTimer = setTimeout(() => { const n = runParse(); if (n) setAiSt(plural(n, 'champ rempli', 'champs remplis') + ' à partir du texte : vérifie.'); }, 700); }
     else if (e.target.closest && e.target.closest('#f-listing .fgrid')) { ML.touched[e.target.id] = true; e.target.classList.remove('auto-filled'); }

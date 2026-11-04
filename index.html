@@ -7,7 +7,7 @@
 try { var m = localStorage.getItem('gite-motion'); if (m ? m === 'on' : !matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('js-motion'); } catch (e) {}
 </script>
 <script src="scene.js"></script>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="Carnet partagé pour proposer des gîtes, les noter ensemble et choisir où partir cet été.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B8502D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11l9-8 9 8M5 10v10h14V10M10 20v-6h4v6'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=2">
@@ -461,7 +461,7 @@ input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offse
 .rv-slot.r1{order:2}.rv-slot.r2{order:1}.rv-slot.r3{order:3}
 .rv-slot.win .step-card{box-shadow:0 0 0 3px var(--accent),var(--shadow-lg);transition:box-shadow .5s var(--ease-out)}
 .rv-btns{display:flex;gap:10px;margin-top:10px}
-@media (max-width:700px){.rv-slots{grid-template-columns:minmax(0,1fr)}.rv-slot.r1{order:1}.rv-slot.r2{order:2}.rv-slot.r3{order:3}}
+@media (max-width:700px){.rv-slot.r2 .ph,.rv-slot.r3 .ph{display:none}.rv-slots{grid-template-columns:minmax(0,1fr)}.rv-slot.r1{order:1}.rv-slot.r2{order:2}.rv-slot.r3{order:3}}
 
 /* Surfaces du navigateur */
 ::selection{background:var(--accent-soft);color:var(--ink)}
@@ -679,7 +679,7 @@ select option:checked{background:var(--accent-soft) linear-gradient(var(--accent
 <style>
 /* Téléphone : défilement vertical uniquement, pas de zoom, comparateur en cartes */
 html,body{max-width:100%;overflow-x:clip}
-html{touch-action:pan-x pan-y}
+html{touch-action:manipulation}
 .cmp .c-name{z-index:2}.cmp .pas{z-index:0}
 .cmp-cards{display:none}
 .cc-bar{display:flex;gap:8px;align-items:flex-end;margin-bottom:12px}
@@ -764,6 +764,42 @@ html[data-scene="off"] .bar{background:color-mix(in srgb,var(--paper) 92%,transp
 .tf .sk{margin:4px 0}
 @media (prefers-reduced-motion:reduce){.sk,.sk-card{animation:none}}
 html[data-motion="off"] .sk,html[data-motion="off"] .sk-card{animation:none}
+/* Lot 13 : corrections d'audit (bouton flottant, encoche, lisibilité, tactile) */
+.dot{display:inline-flex;align-items:center;justify-content:center;border-color:var(--muted);font-size:11.5px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums}
+.dot.f{color:#FFFBF3}
+.vv{color:var(--ink)!important}
+.v-scale{margin:8px 0 2px}
+section.todo .todo-t{font-size:15px;white-space:normal}
+.scroll-hint{display:none;font-size:13px;color:var(--muted);margin:0 0 6px}
+@media (max-width:700px){.scroll-hint{display:block}}
+.steps-hint{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:15px}
+.gear-badge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--accent);color:#FFFBF3;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;pointer-events:none}
+.gear{position:relative}
+.dc:not(.s0):not(.s1):not(.s2){border-color:var(--muted)!important}
+body:has(#drawer-wrap:not([hidden])) .fab,body:has(#modal:not([hidden])) .fab,body:has(#reveal:not([hidden])) .fab{display:none!important}
+.bar{top:env(safe-area-inset-top,0px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:color-mix(in srgb,var(--paper) 82%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);z-index:41;pointer-events:none}
+@media (hover:none){.kbd-only{display:none}}
+@media (max-width:640px){
+  .fab:not([hidden]){z-index:35}
+  .toasts{bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}
+  .tf-l,.dl dt,.cc-l,.cc-sort{font-size:12.5px}
+  .mini-tbl th,.cmp th,.who th,.dt thead th{font-size:12.5px}
+  span.todo{font-size:13px}
+  .tf-grp{display:none}
+  .trip .tf{padding:10px 14px 11px}
+  .trip .tf:nth-child(3){grid-column:1 / -1;border-right:0;border-bottom:0;flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:12px}
+  .trip .tf:nth-child(3) .tf-l{flex-basis:100%}
+  .trip .tf-v{font-size:17px}
+  .filters{gap:8px}
+  .filters .f-set{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:8px;width:100%}
+  .filters .fld{flex-direction:column;align-items:stretch;gap:3px;min-width:0}
+  .filters .fld label{font-size:12.5px}
+  .filters .fld select{width:100%;min-width:0}
+  .filters .fld[hidden]{display:none}
+  .eyebrow{font-size:12.5px}
+}
+
 </style>
 </head>
 <body>
