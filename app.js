@@ -166,7 +166,7 @@ function countUp(el, to, dur){
 const S = {
   booted:false, db:null, user:null, sample:null, assets:null, downloads:null,
   myId:null, isOwner:false, readOnly:false, meName:'',
-  config:null, trip:{}, members:{}, votes:{}, listings:{}, comments:{},
+  waiting:true, config:null, trip:{}, members:{}, votes:{}, listings:{}, comments:{},
   loaded:{members:false, listings:false, votes:false, trip:false},
   view:'galerie', f:{dept:'', status:'', sort:'score'}, cmp:{key:'overall', dir:-1},
   flipped:new Set(), stampWeek:false, openId:null, mapSel:null, myVoteDirty:false, onboardShown:false, confirmClose:false, dwConfirm:false,
@@ -185,7 +185,7 @@ const canEdit = () => !!S.db && !!S.myId && !S.readOnly;
 const wouldVote = () => canEdit() && !cfg().closed;
 const canVote = () => wouldVote() && !!S.members[S.myId];
 /* La galerie attend d'avoir reçu les logements, les notes et les inscrits : sinon les cartes se redessinent au fil des réponses et l'entrée animée est coupée. */
-const dataReady = () => !S.db || (S.loaded.listings && S.loaded.votes && S.loaded.members);
+const dataReady = () => !S.waiting && (!S.db || (S.loaded.listings && S.loaded.votes && S.loaded.members));
 const applicable = uid => crits().filter(c => !c.payersOnly || isPayer(uid));
 /* Un critère ajouté après coup n'est exigé que pour les logements qu'on commence à noter après son ajout :
    ajouter un critère ne recache pas les notes déjà débloquées. */
@@ -588,7 +588,7 @@ function renderNews(){
   const html = `<p class="news-t">Depuis ta dernière visite</p><button type="button" class="news-t news-tg" data-act="news-toggle" aria-expanded="${!!S.newsOpen}">Depuis ta dernière visite <span class="news-n">${n} nouveauté${n > 1 ? 's' : ''}</span>${IC.chev}</button><ul>${items.slice(0, 8).join('')}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
   if (el._h === html) return;
   const first = el.hidden; el.innerHTML = html; el._h = html; el.hidden = false; el.classList.toggle('open', !!S.newsOpen);
-  if (first) { anim(el, [{opacity:0, transform:'translateY(-10px)'}, {opacity:1, transform:'none'}], {duration:480, easing:EASE_OUT}); $$('li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'none'}], {duration:360, delay:160 + i * 60, easing:EASE_BACK, fill:'backwards'})); }
+  if (first) { const hh = el.offsetHeight; anim(el, [{opacity:0, transform:'translateY(-10px)', height:'0px', paddingBlock:'0px', overflow:'hidden'}, {opacity:1, transform:'none', height:hh + 'px', overflow:'hidden'}], {duration:480, easing:EASE_OUT}); $$('li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'none'}], {duration:360, delay:160 + i * 60, easing:EASE_BACK, fill:'backwards'})); }
 }
 
 /* ---------- Connexion et base de données (Supabase) ---------- */
@@ -678,7 +678,9 @@ const DOWNLOADS = {
     return {status:'saved'};
   }
 };
+function hideBoot(){ const b = $('#boot'); if (!b) return; b.classList.add('out'); setTimeout(() => b.remove(), 400); }
 function showLogin(msg){
+  S.waiting = false; hideBoot();
   const L = $('#login'); L.hidden = false; $('#app').inert = true;
   $('#lg-err').textContent = msg || '';
   const n = store.get('gite-name'); if (n && !$('#lg-name').value) $('#lg-name').value = n;
@@ -687,6 +689,7 @@ function showLogin(msg){
   if (!(M() && GM.login && GM.login(L))) anim($('.login-card'), [{opacity:0, transform:'translateY(14px) scale(.98)'}, {opacity:1, transform:'none'}], {duration:520, easing:EASE_OUT});
 }
 function showWait(failed){
+  S.waiting = false; hideBoot();
   const L = $('#login'); L.hidden = false; $('#app').inert = true;
   $('#f-login').hidden = true; $('#lg-wait').hidden = false;
   $('#lg-wait-t').textContent = failed ? 'Impossible de vérifier ton accès pour l’instant. Réessaie dans un instant.' : 'Ta demande est bien envoyée. Dès qu’un organisateur t’a validé, tu peux entrer dans le carnet.';
@@ -729,8 +732,8 @@ async function doLogin(){
 async function boot(){
   applyMotion(); readHash(); bindStatic();
   const C = window.GITE_CONFIG || {};
-  if (!window.supabase && C.url && C.key && !/COLLE_ICI/.test(C.url + C.key)) { S.netMissing = true; S.booted = true; renderAll(); runIntro(); return; }
-  if (!C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.booted = true; renderAll(); runIntro(); return; }
+  if (!window.supabase && C.url && C.key && !/COLLE_ICI/.test(C.url + C.key)) { S.netMissing = true; S.waiting = false; S.booted = true; renderAll(); runIntro(); return; }
+  if (!C.url || !C.key || /COLLE_ICI/.test(C.url + C.key)) { S.cfgMissing = true; S.waiting = false; S.booted = true; renderAll(); runIntro(); return; }
   SB = window.supabase.createClient(C.url, C.key);
   renderAll();
   let session = null;
@@ -739,14 +742,16 @@ async function boot(){
 }
 /* Séquence d'ouverture : jouée une seule fois, quand le carnet devient visible (donc après la connexion). */
 function runIntro(){
+  S.waiting = false; hideBoot();
   if (S.introDone) return; S.introDone = true;
-  if (GM.ready && M() && GM.intro) { GM.intro(renderHeader); return; }
+  if (GM.ready && M() && GM.intro) { if (performance.now() > 500) setTimeout(() => GM.intro(renderHeader), 200); else GM.intro(renderHeader); return; }
   document.documentElement.classList.remove('js-motion'); /* sans GSAP ou sans animations : retour au fondu CSS d'origine */
 }
 async function isApproved(uid){
   try {
     const [a, m] = await Promise.all([SB.from('admins').select('user_id').eq('user_id', uid).maybeSingle(), SB.from('approved').select('user_id').eq('user_id', uid).maybeSingle()]);
     if (a.error || m.error) return null;
+    S.isOwner = !!a.data;
     return !!(a.data || m.data);
   } catch (e) { return null; }
 }
@@ -758,7 +763,6 @@ async function start(session){
   S.myId = uid; S.db = makeDb(SB, uid); S.assets = makeAssets(SB, uid); S.downloads = DOWNLOADS; S.sample = null;
   const meta = session.user.user_metadata || {};
   S.meName = meta.prenom || meta.given_name || (meta.full_name || '').split(' ')[0] || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
-  try { const {data} = await SB.from('admins').select('user_id').eq('user_id', uid).maybeSingle(); S.isOwner = !!data; } catch (e) { S.isOwner = false; }
   S.booted = true;
   subscribe(); renderAll();
   if (S.isOwner) SB.from('pending').select('user_id', {count:'exact', head:true}).then(r => { if (r.count) setTimeout(() => toast(r.count + (r.count > 1 ? ' personnes attendent' : ' personne attend') + ' ta validation (Réglages)'), 1500); }, () => {});

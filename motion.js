@@ -43,7 +43,7 @@ GM.intro = function(done){
   const rise = $$('.rise');
   const finish = () => {
     html.classList.add('gm-intro-done'); html.classList.remove('js-motion');
-    g.set(rise, {clearProps:'opacity,visibility'});
+    g.set(rise, {clearProps:'opacity,visibility'}); g.set('#panel', {clearProps:'opacity,visibility,transform'});
     GM.titleLocked = false;
     introTl = null; introFinish = null;
     if (done) done();
@@ -64,12 +64,13 @@ GM.intro = function(done){
   tl.from($$('#trip .tf'), {opacity:0, y:18, duration:.7, stagger:.08, clearProps:'opacity,transform'}, .55);
   tl.from($$('.bar .tab'), {opacity:0, y:12, duration:.55, stagger:.05, clearProps:'opacity,transform'}, .8);
   tl.from('#add-btn', {opacity:0, scale:.92, duration:.5}, 1.05);
+  tl.fromTo('#panel', {autoAlpha:0, y:18}, {autoAlpha:1, y:0, duration:.7, clearProps:'opacity,visibility,transform'}, .95);
 };
 function abortIntro(){
   if (!introTl) return;
   introTl.kill();
   if (introSplit) { introSplit.revert(); introSplit = null; }
-  g.set($$('.hdr *, #trip .tf, .bar *'), {clearProps:'opacity,transform,strokeDashoffset'});
+  g.set($$('.hdr *, #trip .tf, .bar *, #panel'), {clearProps:'opacity,visibility,transform,strokeDashoffset'});
   if (introFinish) introFinish();
 }
 /* Les pastilles des inscrits arrivent une à une. */
