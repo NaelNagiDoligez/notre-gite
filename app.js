@@ -167,7 +167,7 @@ const S = {
   booted:false, db:null, user:null, sample:null, assets:null, downloads:null,
   myId:null, isOwner:false, readOnly:false, meName:'',
   config:null, trip:{}, members:{}, votes:{}, listings:{}, comments:{},
-  loaded:{members:false, listings:false, votes:false},
+  loaded:{members:false, listings:false, votes:false, trip:false},
   view:'galerie', f:{dept:'', status:'', sort:'score'}, cmp:{key:'overall', dir:-1},
   flipped:new Set(), stampWeek:false, openId:null, mapSel:null, myVoteDirty:false, onboardShown:false, confirmClose:false, dwConfirm:false,
   st:{}, unlockedSeen:new Set(), highlight:null, revealPlayed:false,
@@ -509,6 +509,7 @@ function fixWeek(wid){
 }
 function fillDates(changed){
   const el = $('#dates'); if (!el) return;
+  if (!dataReady()) { el.innerHTML = '<div class="pod-head"><div><h2 class="h2" style="font-size:34px">Quand partir à l’été ' + YEAR + ' ?</h2></div></div>' + skWrap('<div class="sk sk-banner"></div>' + skRows(5)); el._h = null; return; }
   const ids = memberIds(); const me = S.myId; const t = S.trip || {};
   const ws = weekStats(); const best = bestWeek(); const max = Math.max(1, ids.length);
   const canMark = canEdit() && !!S.members[me];
@@ -737,7 +738,7 @@ function dbErr(e){ if (e && e.code === 'revoked') { S.readOnly = true; schedule(
 function subscribe(){
   const db = S.db;
   db.doc('config/main').onSnapshot(s => { S.config = s.exists ? s.data() : null; schedule(); }, dbErr);
-  db.doc('trip/main').onSnapshot(s => { S.trip = s.exists ? s.data() : {}; schedule(); }, dbErr);
+  db.doc('trip/main').onSnapshot(s => { S.trip = s.exists ? s.data() : {}; S.loaded.trip = true; schedule(); }, dbErr);
   db.collection('members').onSnapshot(q => { const m = {}; q.docs.forEach(d => { m[d.id] = d.data(); }); S.members = m; if (!q.metadata.fromCache) S.loaded.members = true; schedule(); }, dbErr);
   db.collection('votes').onSnapshot(q => { const v = {}; q.docs.forEach(d => { v[d.id] = d.data(); }); if (S.myVoteDirty && S.votes[S.myId]) v[S.myId] = S.votes[S.myId]; S.votes = v; S.loaded.votes = true; schedule(); }, dbErr);
   db.collection('listings').onSnapshot(q => { const l = {}; q.docs.forEach(d => { l[d.id] = Object.assign({}, d.data(), {id:d.id}); }); S.listings = l; S.loaded.listings = true; schedule(); }, dbErr);
@@ -764,11 +765,13 @@ function renderHeader(){
   const ids = memberIds();
   const avEl = $('#avatars');
   const avHTML = ids.slice(0, 8).map(id => avatar(id)).join('') + (ids.length > 8 ? `<span class="av av-more">+${ids.length - 8}</span>` : '');
-  if (avEl._h !== avHTML) {
+  const loadingAv = !!S.db && !S.loaded.members && !avEl._h;
+  if (loadingAv) { if (!avEl.firstChild) avEl.innerHTML = '<span class="av sk sk-av"></span><span class="av sk sk-av"></span><span class="av sk sk-av"></span>'; }
+  else if (avEl._h !== avHTML) {
     const first = !avEl._h; avEl.innerHTML = avHTML; avEl._h = avHTML;
     if (first && ids.length && S.introDone && M() && GM.avatars) GM.avatars(avEl);
   }
-  $('#grp').textContent = ids.length ? plural(ids.length, 'inscrit') : '';
+  $('#grp').textContent = loadingAv ? '' : (ids.length ? plural(ids.length, 'inscrit') : '');
   if (!$('#gear-pop').hidden) renderGear();
   $('#add-btn').hidden = !canEdit(); $('#add-fab').hidden = !canEdit();
 }
@@ -793,13 +796,14 @@ function renderTrip(force){
   if (!force && band.querySelector('input')) return;
   const t = S.trip || {}; const ids = memberIds();
   const pen = canEdit();
+  const wait = !!S.db && !S.loaded.trip;
   const html = TRIP_FIELDS.map(([k, l, ph]) => {
     const v = t[k];
-    const inner = pen
+    const inner = wait ? '<span class="sk sk-l sk-w80" style="height:26px"></span>' : pen
       ? `<button type="button" class="tf-v tf-edit${v ? '' : ' tf-empty'}" data-trip="${k}" aria-describedby="tl-${k}" title="Modifier">${esc(v || ph)}${IC.pen}</button>`
       : `<span class="tf-v">${esc(v || ph)}</span>`;
     return `<div class="tf"><span class="tf-l" id="tl-${k}">${l}</span>${inner}${k === 'periode' ? periodSub() : ''}</div>`;
-  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${avancementHTML()}</div><div class="tf"><span class="tf-l">Groupe</span><span class="tf-v">${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
+  }).join('') + `<div class="tf"><span class="tf-l">Avancement</span>${dataReady() ? avancementHTML() : '<span class="sk sk-l sk-w70" style="height:26px"></span><span class="sk sk-l sk-w90"></span>'}</div><div class="tf"><span class="tf-l">Groupe</span>${!S.loaded.members && S.db ? '<span class="sk sk-l sk-w60" style="height:26px"></span>' : ''}<span class="tf-v"${!S.loaded.members && S.db ? ' hidden' : ''}>${ids.length ? esc(plural(ids.length, 'inscrit')) : 'Personne pour l’instant'}</span></div>`;
   if (force || band._h !== html) { band.innerHTML = html; band._h = html; }
 }
 function editTrip(k){
@@ -912,7 +916,7 @@ function fillFilterSelects(){
   }
 }
 function countLabel(n, all){
-  if (!all) return 'Aucun logement';
+  if (!all) return dataReady() ? 'Aucun logement' : 'Chargement…';
   return n === all ? plural(all, 'logement') : n + ' sur ' + plural(all, 'logement');
 }
 function galleryList(){
@@ -962,8 +966,12 @@ function backHTML(l, s, see){
   } else body = `<div class="bk-lock">${IC.lock}<p>Note ce logement pour voir les notes du groupe.</p></div>`;
   return `<div class="card-back" aria-hidden="${!S.flipped.has(l.id)}"><div class="bk-top"><h3 class="bk-t">${esc(l.title || 'Sans titre')}</h3>${see && s.overall != null ? `<span class="bk-score">${fmtScore(s.overall)}<small>/10</small></span>` : ''}</div>${body}</div>`;
 }
+/* Attente du chargement : les éléments à venir apparaissent en silhouettes floutées qui brillent doucement. */
+const skCard = () => `<article class="card sk-card" aria-hidden="true"><div class="sk sk-ph"></div><div class="cb"><div class="sk sk-l sk-w70"></div><div class="sk sk-l sk-w45"></div><div class="sk sk-l sk-w90" style="margin-top:14px"></div><div class="sk-chips"><span class="sk sk-pill"></span><span class="sk sk-pill"></span></div></div></article>`;
+const skRows = n => Array.from({length:n}, () => `<div class="sk-row"><span class="sk sk-th"></span><span class="grow"><span class="sk sk-l sk-w60"></span><span class="sk sk-l sk-w35"></span></span><span class="sk sk-pill"></span></div>`).join('');
+const skWrap = inner => `<div class="sk-wrap" role="status" aria-label="Chargement du carnet">${inner}<span class="sr-only">Chargement du carnet…</span></div>`;
 function emptyHTML(){
-  if (!dataReady()) return '<div class="ghost" aria-hidden="true"></div><div class="ghost" aria-hidden="true"></div><p class="muted" style="grid-column:1/-1">Chargement du carnet…</p>';
+  if (!dataReady()) return Array.from({length:6}, skCard).join('') + '<span class="sr-only" role="status">Chargement du carnet…</span>';
   if (listingsArr().length) return `<div class="empty"><h3>Aucun logement ne correspond</h3><p>Change de département ou de statut pour en voir d’autres.</p><button type="button" class="btn" data-act="reset-filters">Voir tous les logements</button></div>`;
   return `<div class="empty">${IC.house}<h3>Le carnet est encore vide</h3>
     <p>Trouve une annonce sur Airbnb, Abritel, Gîtes de France ou ailleurs, puis ajoute-la ici avec son lien. Colle le texte ou une capture d’écran de l’annonce : la fiche se remplit toute seule.</p>
@@ -1040,6 +1048,7 @@ function podiumUnlocked(){
 function fillSidePodium(){
   const el = $('#side-podium'); if (!el) return;
   const list = listingsArr();
+  if (!dataReady()) { el.innerHTML = '<h3 class="side-t">Podium provisoire</h3><div class="sk sk-l sk-w90 sk-on-dark"></div><div class="sk sk-l sk-w70 sk-on-dark"></div><div class="sk sk-l sk-w80 sk-on-dark"></div>'; return; }
   if (!list.length) { el.innerHTML = '<h3 class="side-t">Podium provisoire</h3><p>Il apparaîtra quand les premiers logements seront notés.</p>'; return; }
   if (!podiumUnlocked()) {
     const done = list.filter(l => hasCompleted(S.myId, l.id)).length;
@@ -1140,6 +1149,7 @@ function mlItem(l){
 }
 function fillMapSide(){
   const el = $('#map-side'); if (!el) return; let html = '';
+  if (!dataReady()) { el.innerHTML = skWrap('<div class="sk sk-l sk-w45"></div><div class="sk sk-l sk-w70" style="height:26px"></div>' + skRows(3)); el._h = null; return; }
   const all = listingsArr();
   if (S.mapSel) {
     const d = DEP[S.mapSel]; const here = all.filter(l => l.dept === S.mapSel);
@@ -1190,6 +1200,7 @@ function fillCompare(changed){
   };
   arr.sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; if (typeof va === 'string') return dir * va.localeCompare(vb, 'fr'); return dir * (va - vb); });
   const wrap = $('#cmp-wrap');
+  if (!dataReady()) { wrap.innerHTML = skWrap(skRows(6)); wrap._h = null; return; }
   if (!all.length) { wrap.innerHTML = `<div style="padding:24px">${emptyHTML()}</div>`; wrap._h = null; return; }
   let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${sortTh('ppn', 'Par nuit')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
     arr.map(l => {
@@ -1248,6 +1259,7 @@ function whoHTML(){
 }
 function fillPodium(changed){
   const el = $('#podium'); const c = cfg(); const all = listingsArr();
+  if (!dataReady()) { const e = $('#podium'); e.innerHTML = '<div class="pod-head"><div><p class="eyebrow">Classement provisoire</p><h2 class="h2" style="font-size:34px">Le podium</h2></div></div>' + skWrap('<div class="sk-stage"><div class="sk sk-step s2"></div><div class="sk sk-step s1"></div><div class="sk sk-step s3"></div></div>'); e._h = null; return; }
   const unlocked = podiumUnlocked();
   let acts = '';
   if (S.isOwner && canEdit()) {
