@@ -682,14 +682,33 @@ function showLogin(msg){
   const L = $('#login'); L.hidden = false; $('#app').inert = true;
   $('#lg-err').textContent = msg || '';
   const n = store.get('gite-name'); if (n && !$('#lg-name').value) $('#lg-name').value = n;
-  setTimeout(() => { const f = $('#lg-name').value ? $('#lg-code') : $('#lg-name'); f.focus(); }, 60);
+  $('#f-login').hidden = false; $('#lg-wait').hidden = true;
+  if ($('#lg-name').value) { $('#lg-alt').open = true; setTimeout(() => $('#lg-code').focus(), 60); }
   if (!(M() && GM.login && GM.login(L))) anim($('.login-card'), [{opacity:0, transform:'translateY(14px) scale(.98)'}, {opacity:1, transform:'none'}], {duration:520, easing:EASE_OUT});
 }
+function showWait(failed){
+  const L = $('#login'); L.hidden = false; $('#app').inert = true;
+  $('#f-login').hidden = true; $('#lg-wait').hidden = false;
+  $('#lg-wait-t').textContent = failed ? 'Impossible de vérifier ton accès pour l’instant. Réessaie dans un instant.' : 'Ta demande est bien envoyée. Dès qu’un organisateur t’a validé, tu peux entrer dans le carnet.';
+}
+async function recheck(){
+  const b = $('#lg-recheck'); if (!S.pendingSession || b.disabled) return;
+  b.disabled = true; b.textContent = 'Vérification…';
+  await start(S.pendingSession);
+  b.disabled = false; b.textContent = 'Vérifier maintenant';
+}
 function hideLogin(){ $('#login').hidden = true; $('#app').inert = false; }
+async function googleLogin(){
+  const err = $('#lg-err'), btn = $('#lg-google'); err.textContent = ''; btn.disabled = true;
+  let res;
+  try { res = await SB.auth.signInWithOAuth({provider:'google', options:{redirectTo: location.origin + location.pathname, queryParams:{prompt:'select_account'}}}); }
+  catch (e) { res = {error:{message:'network'}}; }
+  if (res.error) { btn.disabled = false; err.textContent = /provider|enabled/i.test(res.error.message || '') ? 'La connexion Google n’est pas encore activée.' : 'Connexion impossible : vérifie ta connexion internet.'; }
+}
 async function doLogin(){
   const name = $('#lg-name').value.trim(), code = $('#lg-code').value;
   const err = $('#lg-err'), btn = $('#lg-btn');
-  if (!name || !code) { err.textContent = 'Indique ton prénom (ou ton e-mail) et ton code.'; return; }
+  if (!name || !code) { err.textContent = 'Indique ton prénom (ou ton e-mail) et ton code, ou continue avec Google.'; return; }
   const isMail = name.includes('@');
   const email = isMail ? name.toLowerCase() : slug(name) + '@' + MAIL_DOMAIN;
   btn.disabled = true; btn.textContent = 'Connexion…'; err.textContent = '';
@@ -724,15 +743,25 @@ function runIntro(){
   if (GM.ready && M() && GM.intro) { GM.intro(renderHeader); return; }
   document.documentElement.classList.remove('js-motion'); /* sans GSAP ou sans animations : retour au fondu CSS d'origine */
 }
+async function isApproved(uid){
+  try {
+    const [a, m] = await Promise.all([SB.from('admins').select('user_id').eq('user_id', uid).maybeSingle(), SB.from('approved').select('user_id').eq('user_id', uid).maybeSingle()]);
+    if (a.error || m.error) return null;
+    return !!(a.data || m.data);
+  } catch (e) { return null; }
+}
 async function start(session){
-  hideLogin(); runIntro();
   const uid = session.user.id;
+  const ok = await isApproved(uid);
+  if (ok !== true) { S.pendingSession = session; showWait(ok === null); return; }
+  S.pendingSession = null; hideLogin(); runIntro();
   S.myId = uid; S.db = makeDb(SB, uid); S.assets = makeAssets(SB, uid); S.downloads = DOWNLOADS; S.sample = null;
   const meta = session.user.user_metadata || {};
-  S.meName = meta.prenom || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
+  S.meName = meta.prenom || meta.given_name || (meta.full_name || '').split(' ')[0] || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
   try { const {data} = await SB.from('admins').select('user_id').eq('user_id', uid).maybeSingle(); S.isOwner = !!data; } catch (e) { S.isOwner = false; }
   S.booted = true;
   subscribe(); renderAll();
+  if (S.isOwner) SB.from('pending').select('user_id', {count:'exact', head:true}).then(r => { if (r.count) setTimeout(() => toast(r.count + (r.count > 1 ? ' personnes attendent' : ' personne attend') + ' ta validation (Réglages)'), 1500); }, () => {});
 }
 function dbErr(e){ if (e && e.code === 'revoked') { S.readOnly = true; schedule(); } }
 function subscribe(){
@@ -1832,11 +1861,26 @@ function openSettings(welcome){
         ${fieldHTML('st-name', 'Prénom', `<input id="st-name" class="input" required maxlength="30" autocomplete="given-name" value="${esc(me.name || firstName(S.meName))}"><span class="err" id="st-name-err" hidden>Indique ton prénom.</span>`)}
         ${welcome ? '' : `<label class="check"><input type="checkbox" id="st-motion"${motion ? ' checked' : ''}><span>Animations activées<small>Coupe-les si le mouvement te gêne. Ce réglage ne vaut que pour toi.</small></span></label>`}
       </fieldset>
-      ${owner ? `<fieldset class="fs"><legend>Le carnet</legend>${fieldHTML('st-title-in', 'Titre', `<input id="st-title-in" class="input" maxlength="50" value="${esc(c.title)}">`)}</fieldset>
+      ${owner ? `<fieldset class="fs" id="st-pend-fs" hidden><legend>Demandes d’accès</legend><p class="hint">Ces personnes se sont connectées avec Google. Valide uniquement celles que tu connais.</p><div class="sec-gap" style="gap:10px" id="st-pend"></div></fieldset>
+      <fieldset class="fs"><legend>Le carnet</legend>${fieldHTML('st-title-in', 'Titre', `<input id="st-title-in" class="input" maxlength="50" value="${esc(c.title)}">`)}</fieldset>
       <fieldset class="fs"><legend>Les critères</legend><p class="hint">Retirer un critère ne supprime pas les notes déjà données, mais elles ne comptent plus.</p><div class="sec-gap" style="gap:10px" id="st-crits">${c.criteria.map(critRow).join('')}</div><div><button type="button" class="btn btn-sm" data-act="add-crit">+ Ajouter un critère</button></div></fieldset>` : ''}
       <div class="mc-foot">${welcome ? '' : '<button type="button" class="btn btn-ghost" data-act="logout" style="margin-right:auto">Se déconnecter</button><button type="button" class="btn" data-close>Annuler</button>'}<button type="submit" class="btn btn-accent">${welcome ? 'C’est parti' : 'Enregistrer'}</button></div>
     </form></div>`;
   openModal(html, {locked:welcome});
+  if (owner) loadPending();
+}
+async function loadPending(){
+  const {data, error} = await SB.from('pending').select('user_id,email,name').order('created_at');
+  const fs = $('#st-pend-fs'), box = $('#st-pend'); if (!fs || !box) return;
+  if (error || !data || !data.length) { fs.hidden = true; return; }
+  fs.hidden = false;
+  box.innerHTML = data.map(p => `<div class="pend"><span><strong>${esc(p.name || '')}</strong> <small class="muted">${esc(p.email || '')}</small></span><span><button type="button" class="btn btn-sm btn-accent" data-act="approve" data-uid="${esc(p.user_id)}">Valider</button> <button type="button" class="btn btn-sm btn-ghost" data-act="reject" data-uid="${esc(p.user_id)}">Refuser</button></span></div>`).join('');
+}
+async function decide(uid, ok, btn){
+  if (btn) btn.disabled = true;
+  const {error} = await SB.rpc('approve_user', {uid, ok});
+  if (error) { if (btn) btn.disabled = false; toast('Action impossible, réessaie'); return; }
+  toast(ok ? 'Personne validée' : 'Demande refusée'); loadPending();
 }
 let critSeq = 0;
 function critRow(c){
@@ -2090,6 +2134,9 @@ function bindStatic(){
       case 'close-confirm': S.confirmClose = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:true, closedAt:Date.now()})); return;
       case 'reopen': S.revealPlayed = false; writeDoc('config/main', Object.assign({}, cfg(), {closed:false, closedAt:null})).then(() => toast('Les votes sont rouverts')); return;
       case 'replay': return playReveal();
+      case 'google': return googleLogin();
+      case 'recheck': return recheck();
+      case 'approve': case 'reject': return decide(d.uid, d.act === 'approve', t);
       case 'logout': SB.auth.signOut().finally(() => location.reload()); return;
       case 'nudge': nudge(); return;
       case 'news-toggle': { S.newsOpen = !S.newsOpen; const n = $('#news'); n.classList.toggle('open', S.newsOpen); t.setAttribute('aria-expanded', String(S.newsOpen)); if (S.newsOpen) $$('li', n).forEach((li, i) => anim(li, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:260, delay:i * 30, easing:EASE_OUT, fill:'backwards'})); return; }
