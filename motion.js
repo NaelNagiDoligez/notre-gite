@@ -43,7 +43,7 @@ GM.intro = function(done){
   const rise = $$('.rise');
   const finish = () => {
     html.classList.add('gm-intro-done'); html.classList.remove('js-motion');
-    g.set(rise, {clearProps:'opacity,visibility'}); g.set('#panel', {clearProps:'opacity,visibility,transform'});
+    g.set(rise, {clearProps:'opacity,visibility,transform'}); g.set('#panel', {clearProps:'opacity,visibility,transform'}); g.set($$('#add-btn, #add-fab'), {clearProps:'opacity,transform'});
     GM.titleLocked = false;
     introTl = null; introFinish = null;
     if (done) done();
@@ -61,10 +61,10 @@ GM.intro = function(done){
   const sq = $('.hdr .squig path');
   if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.2}, .65);
   tl.from($$('.hdr-r > *'), {opacity:0, y:14, duration:.6, stagger:.07, clearProps:'opacity,transform'}, .35);
-  tl.from('#trip', {opacity:0, y:16, duration:.6, clearProps:'opacity,transform'}, .3);
+  tl.from('#trip', {opacity:0, y:16, duration:.6}, .3);
   tl.from($$('.bar .tab, #tab-ind'), {opacity:0, y:10, duration:.45, stagger:.04, clearProps:'opacity,transform'}, .45);
-  tl.fromTo($$('#add-btn, #add-fab'), {opacity:0, scale:.92}, {opacity:1, scale:1, duration:.45, clearProps:'opacity,transform'}, .65);
-  tl.fromTo('#panel', {autoAlpha:0, y:14}, {autoAlpha:1, y:0, duration:.55, clearProps:'opacity,visibility,transform'}, .55);
+  tl.fromTo($$('#add-btn, #add-fab'), {opacity:0, scale:.92}, {opacity:1, scale:1, duration:.45}, .65);
+  tl.fromTo('#panel', {autoAlpha:0, y:14}, {autoAlpha:1, y:0, duration:.55}, .55);
 };
 function abortIntro(){
   if (!introTl) return;
