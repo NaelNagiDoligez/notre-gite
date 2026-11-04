@@ -43,16 +43,16 @@ GM.intro = function(done){
   const rise = $$('.rise');
   const finish = () => {
     html.classList.add('gm-intro-done'); html.classList.remove('js-motion');
-    g.set(rise, {clearProps:'opacity,visibility,transform,filter'}); g.set('#panel', {clearProps:'opacity,visibility,transform'}); g.set($$('#add-btn, #add-fab'), {clearProps:'opacity,transform'});
+    g.set(rise.concat($$('#news, #banner')), {clearProps:'opacity,visibility,transform,filter'}); g.set('#panel', {clearProps:'opacity,visibility,transform'}); g.set($$('#add-btn, #add-fab'), {clearProps:'opacity,transform'});
     GM.titleLocked = false;
     introTl = null; introFinish = null;
     if (done) done();
   };
   if (!on() || !rise.length) { finish(); return; }
   /* Tout arrive d'un seul geste, de flou à net : le téléphone n'a rien d'autre à faire pendant ce temps. */
-  const soft = rise.filter(e => !e.classList.contains('bar'));
+  const soft = rise.filter(e => !e.classList.contains('bar')).concat($$('#news, #banner'));
   const bar = $('.bar');
-  g.set(rise, {opacity:1});
+  g.set(rise.concat($$('#news, #banner')), {opacity:1});
   const tl = introTl = g.timeline({defaults:{ease:OUT}, onComplete: finish});
   introFinish = finish;
   tl.fromTo(soft, {opacity:0, y:14, filter:'blur(8px)'}, {opacity:1, y:0, filter:'blur(0px)', duration:.6, stagger:.06}, 0);

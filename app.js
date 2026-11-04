@@ -848,7 +848,7 @@ function settleThen(fn){
   const imgs = Array.from(document.querySelectorAll('#panel img')).slice(0, 8);
   const decoded = Promise.all(imgs.map(i => i.decode ? i.decode().catch(() => {}) : null));
   const wait = ms => new Promise(r => setTimeout(r, ms));
-  Promise.all([Promise.race([decoded, wait(1500)]), wait(400)]).then(() => requestAnimationFrame(() => requestAnimationFrame(fn)));
+  Promise.all([Promise.race([decoded, wait(1500)]), wait(Math.max(400, 1500 - performance.now()))]).then(() => requestAnimationFrame(() => requestAnimationFrame(fn)));
 }
 
 /* ---------- En-tête, bandeau, onglets ---------- */
