@@ -782,7 +782,7 @@ async function boot(){
 function runIntro(){
   S.waiting = false; hideBoot();
   if (S.introDone) return; S.introDone = true;
-  if (GM.ready && M() && GM.intro) { if (performance.now() > 500) setTimeout(() => GM.intro(renderHeader), 200); else GM.intro(renderHeader); return; }
+  if (GM.ready && M() && GM.intro) { GM.intro(renderHeader); return; }
   document.documentElement.classList.remove('js-motion'); /* sans GSAP ou sans animations : retour au fondu CSS d'origine */
 }
 async function isApproved(uid){
@@ -797,7 +797,10 @@ async function start(session){
   const uid = session.user.id;
   const ok = await isApproved(uid);
   if (ok !== true) { S.pendingSession = session; showWait(ok === null); return; }
-  S.pendingSession = null; hideLogin(); runIntro();
+  S.pendingSession = null; hideLogin();
+  /* Le carnet se construit en coulisses (invisible) ; l'écran d'attente reste tant que tout n'est pas prêt, puis l'ouverture se joue d'un coup. */
+  S.waiting = false; S.introPending = true;
+  setTimeout(() => { if (S.introPending) { S.introPending = false; runIntro(); } }, 5000);
   S.myId = uid; S.db = makeDb(SB, uid); S.assets = makeAssets(SB, uid); S.downloads = DOWNLOADS; S.sample = null;
   const meta = session.user.user_metadata || {};
   S.meName = meta.prenom || meta.given_name || (meta.full_name || '').split(' ')[0] || store.get('gite-name') || cap1(((session.user.email || '').split('@')[0] || '').split('-')[0]);
@@ -838,6 +841,14 @@ function renderAll(){
   [renderHeader, renderBanner, renderTrip, renderNews, renderTabs, renderView].concat(S.openId ? [updateDrawer] : []).forEach(f => { try { f(); } catch (e) { console.error('[gîte] ' + f.name, e); } });
   if (S.booted && S.loaded.members && S.myId && !S.readOnly && S.db && !S.members[S.myId] && !S.onboardShown && $('#modal').hidden) { S.onboardShown = true; openSettings(true); }
   maybeReveal();
+  if (S.introPending && S.db && S.loaded.listings && S.loaded.votes && S.loaded.members) { S.introPending = false; settleThen(runIntro); }
+}
+/* Laisse au téléphone le temps de décoder les premières photos et de finir de construire la page avant de lancer l'ouverture. */
+function settleThen(fn){
+  const imgs = Array.from(document.querySelectorAll('#panel img')).slice(0, 8);
+  const decoded = Promise.all(imgs.map(i => i.decode ? i.decode().catch(() => {}) : null));
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  Promise.all([Promise.race([decoded, wait(1500)]), wait(400)]).then(() => requestAnimationFrame(() => requestAnimationFrame(fn)));
 }
 
 /* ---------- En-tête, bandeau, onglets ---------- */

@@ -43,34 +43,30 @@ GM.intro = function(done){
   const rise = $$('.rise');
   const finish = () => {
     html.classList.add('gm-intro-done'); html.classList.remove('js-motion');
-    g.set(rise, {clearProps:'opacity,visibility,transform'}); g.set('#panel', {clearProps:'opacity,visibility,transform'}); g.set($$('#add-btn, #add-fab'), {clearProps:'opacity,transform'});
+    g.set(rise, {clearProps:'opacity,visibility,transform,filter'}); g.set('#panel', {clearProps:'opacity,visibility,transform'}); g.set($$('#add-btn, #add-fab'), {clearProps:'opacity,transform'});
     GM.titleLocked = false;
     introTl = null; introFinish = null;
     if (done) done();
   };
   if (!on() || !rise.length) { finish(); return; }
-  const title = $('#title');
-  if (title && window.SplitText) {
-    GM.titleLocked = true;
-    introSplit = SplitText.create(title, {type:'words,chars', charsClass:'ch', aria:'auto'});
-  }
+  /* Tout arrive d'un seul geste, de flou à net : le téléphone n'a rien d'autre à faire pendant ce temps. */
+  const soft = rise.filter(e => !e.classList.contains('bar'));
+  const bar = $('.bar');
   g.set(rise, {opacity:1});
-  const tl = introTl = g.timeline({defaults:{ease:OUT}, onComplete(){ if (introSplit) { introSplit.revert(); introSplit = null; } finish(); }});
+  const tl = introTl = g.timeline({defaults:{ease:OUT}, onComplete: finish});
   introFinish = finish;
-  if (introSplit) tl.from(introSplit.chars, {opacity:0, y:48, rotation:() => rnd(-9, 9), duration:1, stagger:.03}, .1);
+  tl.fromTo(soft, {opacity:0, y:14, filter:'blur(8px)'}, {opacity:1, y:0, filter:'blur(0px)', duration:.6, stagger:.06}, 0);
+  if (bar) tl.fromTo(bar, {opacity:0, y:10}, {opacity:1, y:0, duration:.5}, .15);
   const sq = $('.hdr .squig path');
-  if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.2}, .65);
-  tl.from($$('.hdr-r > *'), {opacity:0, y:14, duration:.6, stagger:.07, clearProps:'opacity,transform'}, .35);
-  tl.from('#trip', {opacity:0, y:16, duration:.6}, .3);
-  tl.from($$('.bar .tab, #tab-ind'), {opacity:0, y:10, duration:.45, stagger:.04, clearProps:'opacity,transform'}, .45);
-  tl.fromTo($$('#add-btn, #add-fab'), {opacity:0, scale:.92}, {opacity:1, scale:1, duration:.45}, .65);
-  tl.fromTo('#panel', {autoAlpha:0, y:14}, {autoAlpha:1, y:0, duration:.55}, .55);
+  if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:.9}, .3);
+  tl.fromTo($$('#add-btn, #add-fab'), {opacity:0, scale:.92}, {opacity:1, scale:1, duration:.4}, .35);
+  tl.fromTo('#panel', {autoAlpha:0, y:14}, {autoAlpha:1, y:0, duration:.6}, .2);
 };
 function abortIntro(){
   if (!introTl) return;
   introTl.kill();
   if (introSplit) { introSplit.revert(); introSplit = null; }
-  g.set($$('.hdr *, #trip, #trip .tf, .bar *, #panel, #add-fab'), {clearProps:'opacity,visibility,transform,strokeDashoffset'});
+  g.set($$('.hdr *, #trip, #trip .tf, .bar *, #panel, #add-fab'), {clearProps:'opacity,visibility,transform,filter,strokeDashoffset'});
   if (introFinish) introFinish();
 }
 /* Les pastilles des inscrits arrivent une à une. */
