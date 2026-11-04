@@ -777,7 +777,12 @@ html.js-motion .fab{opacity:0}
 .dc:not(.s0):not(.s1):not(.s2){border-color:var(--muted)!important}
 body:has(#drawer-wrap:not([hidden])) .fab,body:has(#modal:not([hidden])) .fab,body:has(#reveal:not([hidden])) .fab{display:none!important}
 .bar{top:env(safe-area-inset-top,0px)}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:color-mix(in srgb,var(--paper) 82%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);z-index:41;pointer-events:none}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--paper);z-index:41;pointer-events:none}
+/* iPhone (écran d'accueil) : bandeau opaque derrière l'heure et la batterie, onglets décalés un peu plus bas */
+@media (hover:none) and (pointer:coarse){
+  body::before{height:calc(env(safe-area-inset-top,0px) + 10px)}
+  .bar{top:calc(env(safe-area-inset-top,0px) + 10px);background:color-mix(in srgb,var(--paper) 94%,transparent)}
+}
 @media (hover:none){.kbd-only{display:none}}
 @media (max-width:640px){
   .fab:not([hidden]){z-index:35}
