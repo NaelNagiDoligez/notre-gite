@@ -691,7 +691,8 @@ function showLogin(msg){
 function showWait(failed){
   S.waiting = false; hideBoot();
   const L = $('#login'); L.hidden = false; $('#app').inert = true;
-  $('#f-login').hidden = true; $('#lg-wait').hidden = false;
+  const first = $('#lg-wait').hidden; $('#f-login').hidden = true; $('#lg-wait').hidden = false;
+  if (first && M() && GM.login) GM.login(L, '#lg-wait');
   $('#lg-wait-t').textContent = failed ? 'Impossible de vérifier ton accès pour l’instant. Réessaie dans un instant.' : 'Ta demande est bien envoyée. Dès qu’un organisateur t’a validé, tu peux entrer dans le carnet.';
 }
 async function recheck(){

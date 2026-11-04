@@ -541,9 +541,9 @@ button.dc:active{transform:scale(.9)}
 .login-card .h1{font-size:42px}
 .login-card .btn{width:100%}
 .btn-google{background:#fff;color:#3c3631;border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;gap:10px;font-weight:600}
-.lg-alt{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:12px}
+.lg-alt{border-top:1px solid var(--line);padding-top:14px}
+.lg-body{display:flex;flex-direction:column;gap:14px;margin-top:14px}
 .lg-alt>summary{cursor:pointer;color:var(--muted,#6b625a);font-size:14px}
-.lg-alt[open]>summary{margin-bottom:4px}
 .pend{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}
 /* Lecture des captures */
 .auto-filled{background-color:var(--accent-soft)!important;border-color:var(--accent)!important}
@@ -830,9 +830,11 @@ html[data-motion="off"] .sk,html[data-motion="off"] .sk-card{animation:none}
     <p class="err" id="lg-err" role="alert"></p>
     <details class="lg-alt" id="lg-alt">
       <summary>J’ai un code de l’organisateur</summary>
+      <div class="lg-body">
       <div class="frow"><label for="lg-name">Prénom ou e-mail</label><input id="lg-name" class="input" autocomplete="username" autocapitalize="off" spellcheck="false"></div>
       <div class="frow"><label for="lg-code">Code</label><input id="lg-code" class="input" type="password" autocomplete="current-password"></div>
       <button type="submit" class="btn btn-accent" id="lg-btn">Entrer</button>
+      </div>
     </details>
   </form>
   <div class="login-card" id="lg-wait" hidden>

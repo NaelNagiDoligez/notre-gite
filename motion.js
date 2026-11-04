@@ -81,13 +81,13 @@ GM.avatars = function(root){
 };
 
 /* ---------- Connexion ---------- */
-GM.login = function(L){
+GM.login = function(L, sel){
   if (!on() || !L) return false;
-  const card = $('.login-card', L); if (!card) return false;
-  g.fromTo(card, {opacity:0, y:36, scale:.96}, {opacity:1, y:0, scale:1, duration:.9, ease:OUT, clearProps:CLEAR});
-  g.from($$('.login-card > *', L), {opacity:0, y:14, duration:.6, stagger:.07, delay:.15, ease:OUT, clearProps:CLEAR});
-  const sq = $('.squig path', L);
-  if (sq) g.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.1, delay:.5, ease:OUT});
+  const card = $(sel || '.login-card', L); if (!card) return false;
+  g.fromTo(card, {opacity:0, y:30, scale:.97}, {opacity:1, y:0, scale:1, duration:.85, delay:.08, ease:OUT, clearProps:CLEAR});
+  g.from(Array.from(card.children).filter(c => !c.hidden), {opacity:0, y:12, duration:.6, stagger:.06, delay:.28, ease:OUT, clearProps:CLEAR});
+  const sq = $('.squig path', card);
+  if (sq) g.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.1, delay:.55, ease:OUT});
   return true;
 };
 

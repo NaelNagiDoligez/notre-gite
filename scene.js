@@ -187,6 +187,12 @@ html[data-scene="off"] #scene{display:none}
 html[data-scene="on"]{background:linear-gradient(180deg,var(--sc-top) 0,var(--sc-top) 120px,var(--sc-mid) 50%,var(--sc-near) calc(100% - 120px),var(--sc-near) 100%) var(--sc-mid)}html[data-scene="on"] body{background:transparent}
 #sc-sky{position:absolute;inset:0;width:100%;height:100%}
 #sc-land{position:absolute;bottom:0;left:0;overflow:visible}
+#scene{animation:sc-in 1.1s ease-out both}
+#sc-land{animation:sc-land-in 1.5s cubic-bezier(.23,1,.32,1) .1s both}
+@keyframes sc-in{from{opacity:0}to{opacity:1}}
+@keyframes sc-land-in{from{opacity:0;translate:0 36px}to{opacity:1;translate:0 0}}
+@media (prefers-reduced-motion:reduce){#scene,#sc-land{animation:none}}
+html[data-motion="off"] #scene,html[data-motion="off"] #sc-land{animation:none}
 #sc-sun,#sc-moon,.sc-glow{position:absolute;left:0;top:0;will-change:transform}
 #sc-sun{width:116px;height:116px;margin:-58px 0 0 -58px}#sc-moon{width:82px;height:82px;margin:-41px 0 0 -41px}
 .sc-glow{width:420px;height:420px;margin:-210px 0 0 -210px;border-radius:50%;background:radial-gradient(closest-side,var(--sc-sun),transparent);opacity:.32}
