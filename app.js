@@ -738,7 +738,14 @@ async function boot(){
   renderAll();
   let session = null;
   try { const {data} = await SB.auth.getSession(); session = data && data.session; } catch (e) {}
-  if (session) start(session); else showLogin();
+  if (session) start(session);
+  else {
+    /* Retour de Google avec une erreur : on l'affiche au lieu de reboucler sans rien dire. */
+    const q = new URLSearchParams((location.hash || '').replace(/^#/, '') + '&' + (location.search || '').replace(/^\?/, ''));
+    const ed = q.get('error_description') || q.get('error');
+    if (ed) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+    showLogin(ed ? (/signups? not allowed/i.test(ed) ? 'Les nouvelles inscriptions sont fermées pour l’instant : demande à l’organisateur.' : 'Connexion Google impossible : ' + ed.replace(/\+/g, ' ')) : '');
+  }
 }
 /* Séquence d'ouverture : jouée une seule fois, quand le carnet devient visible (donc après la connexion). */
 function runIntro(){
