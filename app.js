@@ -935,7 +935,7 @@ function cardHTML(l){
   if (see && s.overall != null) score = `<span class="score" data-v="${s.overall}" aria-label="Note moyenne ${fmtScore(s.overall)} sur 10">${fmtScore(s.overall)}</span>`;
   else if (canVote() && !hasCompleted(S.myId, l.id)) score = '<span class="todo">À toi de noter</span>';
   else score = '<span class="score score-none" aria-label="Pas encore noté">–</span>';
-  const facts = [fmtPrice(num(l.price)), l.beds ? plural(l.beds, 'couchage') : '', l.bedrooms ? plural(l.bedrooms, 'chambre') : ''].filter(Boolean).join(' · ');
+  const facts = [fmtPrice(num(l.price)), l.beds ? plural(l.beds, 'couchage') : '', l.bedrooms ? plural(l.bedrooms, 'chambre') : '', l.bathrooms ? plural(l.bathrooms, 'salle de bain', 'salles de bain') : ''].filter(Boolean).join(' · ');
   const eq = (l.equipments || []).slice(0, 4).join(' · ');
   const flipped = S.flipped.has(l.id);
   return `<article class="card${S.awayId === l.id ? ' card-away' : ''}${S.highlight === l.id ? ' hl' : ''}${flipped ? ' flipped' : ''}" data-k="${esc(l.id)}">
@@ -1363,7 +1363,7 @@ function dwHead(l){
 function dwFacts(l){
   const s = st(l.id);
   const nn = nightsOf(l), ppn = perPN(l);
-  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Prix par nuit', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn)], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
+  const items = [['Prix total', fmtPrice(num(l.price))], ['Prix vu pour', l.priceDates || (nn ? plural(nn, 'nuit') : '–')], ['Prix par nuit', ppn == null ? (num(l.price) != null && !nn ? 'Indique le nombre de nuits' : '–') : fmtEur(ppn)], ['Chambres', l.bedrooms != null && l.bedrooms !== '' ? l.bedrooms : '–'], ['Salles de bain', l.bathrooms != null && l.bathrooms !== '' ? l.bathrooms : '–'], ['Couchages', l.beds != null && l.beds !== '' ? l.beds : '–']];
   const eq = (l.equipments || []);
   const wk = (S.trip || {}).week && WEEKS.find(x => x.id === S.trip.week); const dv = dispoOf(l);
   const dispoBlock = wk ? `<div class="dispo"><span class="dispo-q">Libre la semaine retenue (${esc(weekLabel(wk))}) ?</span>${canEdit() ? `<div class="dispo-b" role="group" aria-label="Disponibilité">${[['oui', 'Oui'], ['non', 'Non'], ['', 'À vérifier']].map(([k, t]) => `<button type="button" class="btn btn-sm${(dv || '') === k ? ' on' : ''}" data-dispo="${k}" aria-pressed="${(dv || '') === k}">${t}</button>`).join('')}</div>` : `<strong>${dv === 'oui' ? 'Oui' : dv === 'non' ? 'Non' : 'À vérifier'}</strong>`}${l.dispo && l.dispo.week === wk.id && l.dispo.by ? `<span class="small muted">Vérifié par ${esc(nameOf(l.dispo.by))} ${esc(relTime(l.dispo.at))}</span>` : ''}</div>` : '';
@@ -1391,7 +1391,7 @@ function dwVote(l){
   if (v.veto && v.veto !== l.id && S.listings[v.veto]) hints.push('Ton veto actuel : ' + S.listings[v.veto].title + '.');
   if (v.heart && !S.listings[v.heart]) hints.push('Le logement de ton coup de cœur a été supprimé : tu peux le redonner.');
   if (v.veto && !S.listings[v.veto]) hints.push('Le logement de ton veto a été supprimé : tu peux le redonner.');
-  hints.push('Un coup de cœur et un veto par personne : en choisir un autre le déplace ici.');
+  hints.push('Un coup de cœur et un veto par personne : en choisir un autre le supprime d’ici.');
   return head + (closed ? '<p class="muted" style="margin-top:6px">Les votes sont clos.</p>' : '') +
     `<div class="vrows">${rows}</div>
     <div class="vtoggles">
@@ -1554,6 +1554,7 @@ function listingModalHTML(l){
         ${fieldHTML('li-commune', 'Commune', `<input id="li-commune" class="input" maxlength="60" value="${v('commune')}" placeholder="Sarlat-la-Canéda">`)}
         ${fieldHTML('li-dept', 'Département', `<select id="li-dept">${depOpts}</select>`)}
         ${fieldHTML('li-bedrooms', 'Chambres', `<input id="li-bedrooms" class="input" inputmode="numeric" value="${v('bedrooms')}" placeholder="5">`)}
+        ${fieldHTML('li-bathrooms', 'Salles de bain', `<input id="li-bathrooms" class="input" inputmode="numeric" value="${v('bathrooms')}" placeholder="3">`, {opt:true})}
         ${fieldHTML('li-beds', 'Couchages', `<input id="li-beds" class="input" inputmode="numeric" value="${v('beds')}" placeholder="12">`)}
         ${fieldHTML('li-eq', 'Équipements', `<input id="li-eq" class="input" maxlength="300" value="${esc((l.equipments || []).join(', '))}" placeholder="Piscine, Clim, Barbecue">`, {full:true, hint:'Sépare-les par des virgules.'})}
         ${fieldHTML('li-note', 'Note', `<textarea id="li-note" class="input" rows="3" maxlength="600" placeholder="Ce qui t’a plu, ce qui coince…">${v('note')}</textarea>`, {full:true, opt:true})}
@@ -1691,7 +1692,7 @@ function runParse(){
   setF('li-title', r.title); setF('li-price', r.price); setF('li-dates', r.priceDates);
   setF('li-commune', r.commune); setF('li-dept', r.dept);
   if (r.commune && !r.dept) lookupDept(0);
-  setF('li-bedrooms', r.bedrooms); setF('li-beds', r.beds);
+  setF('li-bedrooms', r.bedrooms); setF('li-bathrooms', r.bathrooms); setF('li-beds', r.beds);
   setF('li-eq', r.equipments && r.equipments.join(', '));
   autoSource();
   { let add = 0; ML.shots.forEach(sh => { if (sh.state === 'photo' && !sh.phSeen) { sh.phSeen = true; if (ML.photos.length < MAX_PH) { ML.photos.push({type:'shot', shot:sh}); add++; } } }); if (add) { renderShots(); renderPhotoZone(); } }
@@ -1728,6 +1729,7 @@ function parseListing(text, lines){
   // Capacité et chambres
   const cap = t.match(/(\d{1,2})\s*(?:voyageurs?|personnes?|couchages?|adultes?|pers\b)/i); if (cap && +cap[1] > 0) r.beds = +cap[1];
   const ch = t.match(/(\d{1,2})\s*chambres?/i); if (ch && +ch[1] > 0) r.bedrooms = +ch[1];
+  const sb = t.match(/(\d{1,2})\s*(?:salles?\s*(?:de\s*bains?|d['’]eau)|sdb)/i); if (sb && +sb[1] > 0) r.bathrooms = +sb[1];
   // Dates vues avec le prix
   const dr = t.match(new RegExp('(\\d{1,2})(?:er)?\\s*(?:(?:' + MOIS + ')[a-zéû]*\\.?)?\\s*(?:-|–|au|→)\\s*(\\d{1,2})\\s*(?:' + MOIS + ')[a-zéû]*\\.?(?:\\s*\\d{4})?', 'i'));
   const nights = t.match(/(\d{1,2})\s*nuits?/i);
@@ -1786,7 +1788,7 @@ async function saveListing(){
     title, url:safeUrl($('#li-url').value), source:$('#li-source').value.trim(),
     price:num($('#li-price').value), priceDates:$('#li-dates').value.trim(),
     commune:$('#li-commune').value.trim(), dept:$('#li-dept').value, lat:ML.lat, lng:ML.lng,
-    bedrooms:int($('#li-bedrooms').value), beds:int($('#li-beds').value),
+    bedrooms:int($('#li-bedrooms').value), bathrooms:int($('#li-bathrooms').value), beds:int($('#li-beds').value),
     equipments:$('#li-eq').value.split(/[,;\n]/).map(x => x.trim()).filter(Boolean).slice(0, 12).map(x => x.slice(0, 30)),
     note:$('#li-note').value.trim(), status:$('#li-status').value || statuses()[0].id, photo, photos,
     importedWith: ML.ai ? 'lecture-captures' : ((prev && prev.importedWith) || 'manuel'),
