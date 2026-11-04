@@ -61,16 +61,16 @@ GM.intro = function(done){
   const sq = $('.hdr .squig path');
   if (sq) tl.fromTo(sq, {strokeDashoffset:1}, {strokeDashoffset:0, duration:1.2}, .65);
   tl.from($$('.hdr-r > *'), {opacity:0, y:14, duration:.6, stagger:.07, clearProps:'opacity,transform'}, .35);
-  tl.from($$('#trip .tf'), {opacity:0, y:18, duration:.7, stagger:.08, clearProps:'opacity,transform'}, .55);
-  tl.from($$('.bar .tab'), {opacity:0, y:12, duration:.55, stagger:.05, clearProps:'opacity,transform'}, .8);
-  tl.from('#add-btn', {opacity:0, scale:.92, duration:.5}, 1.05);
-  tl.fromTo('#panel', {autoAlpha:0, y:18}, {autoAlpha:1, y:0, duration:.7, clearProps:'opacity,visibility,transform'}, .95);
+  tl.from('#trip', {opacity:0, y:16, duration:.6, clearProps:'opacity,transform'}, .3);
+  tl.from($$('.bar .tab, #tab-ind'), {opacity:0, y:10, duration:.45, stagger:.04, clearProps:'opacity,transform'}, .45);
+  tl.fromTo($$('#add-btn, #add-fab'), {opacity:0, scale:.92}, {opacity:1, scale:1, duration:.45, clearProps:'opacity,transform'}, .65);
+  tl.fromTo('#panel', {autoAlpha:0, y:14}, {autoAlpha:1, y:0, duration:.55, clearProps:'opacity,visibility,transform'}, .55);
 };
 function abortIntro(){
   if (!introTl) return;
   introTl.kill();
   if (introSplit) { introSplit.revert(); introSplit = null; }
-  g.set($$('.hdr *, #trip .tf, .bar *, #panel'), {clearProps:'opacity,visibility,transform,strokeDashoffset'});
+  g.set($$('.hdr *, #trip, #trip .tf, .bar *, #panel, #add-fab'), {clearProps:'opacity,visibility,transform,strokeDashoffset'});
   if (introFinish) introFinish();
 }
 /* Les pastilles des inscrits arrivent une à une. */
@@ -98,15 +98,15 @@ GM.swap = function(panel, dir, apply){
   /* La hauteur du panneau est gardée le temps du changement : la page ne saute plus vers le haut,
      puis elle se resserre doucement si le nouvel onglet est plus court. */
   const h0 = panel.offsetHeight; panel.style.minHeight = h0 + 'px';
-  g.to(panel, {opacity:0, x:-dir * 14, duration:.13, ease:'power1.out', onComplete(){
+  g.to(panel, {opacity:0, x:-dir * 10, duration:.12, ease:'power1.out', onComplete(){
     apply();
     /* hauteur naturelle mesurée sans lâcher le verrou (sinon le navigateur recale le scroll d'un coup) */
     const kids = Array.from(panel.children), pr = panel.getBoundingClientRect(), cs = getComputedStyle(panel), last = kids[kids.length - 1];
     const h1 = last ? Math.ceil(last.getBoundingClientRect().bottom - pr.top + (parseFloat(getComputedStyle(last).marginBottom) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) : 0;
     panel.style.minHeight = h0 + 'px';
-    if (h1 < h0) g.to(panel, {minHeight:h1, duration:.55, ease:'power2.inOut', onComplete(){ panel.style.minHeight = ''; }});
+    if (h1 < h0) g.to(panel, {minHeight:h1, duration:.4, ease:'power2.inOut', onComplete(){ panel.style.minHeight = ''; }});
     else panel.style.minHeight = '';
-    g.fromTo(panel, {opacity:0, x:dir * 34, y:dir ? 0 : 10}, {opacity:1, x:0, y:0, duration:.55, ease:OUT, clearProps:'transform,opacity'});
+    g.fromTo(panel, {opacity:0, x:dir * 18, y:dir ? 0 : 8}, {opacity:1, x:0, y:0, duration:.32, ease:OUT, clearProps:'transform,opacity'});
   }});
 };
 
@@ -199,15 +199,15 @@ GM.enterCards = function(cards){
   const play = (els, delay) => {
     els.forEach(e => { hidden.delete(e); e._enter = true; });
     return g.fromTo(els,
-      {opacity:0, y:54, scale:.94, rotation:() => rnd(-2, 2), transformOrigin:'50% 100%'},
-      {opacity:1, y:0, scale:1, rotation:0, duration:.9, ease:OUT, delay:delay || 0, stagger:.065, overwrite:true,
+      {opacity:0, y:28, scale:.97, rotation:() => rnd(-1.2, 1.2), transformOrigin:'50% 100%'},
+      {opacity:1, y:0, scale:1, rotation:0, duration:.55, ease:OUT, delay:delay || 0, stagger:.05, overwrite:true,
         onComplete(){ els.forEach(e => { e._enter = false; }); g.set(els, {clearProps:CLEAR}); }});
   };
   if (later.length) {
     if (window.ScrollTrigger) {
-      g.set(later, {opacity:0, y:54, scale:.94, transformOrigin:'50% 100%'});
+      g.set(later, {opacity:0, y:28, scale:.97, transformOrigin:'50% 100%'});
       later.forEach(e => hidden.add(e));
-      triggers.grid.push.apply(triggers.grid, ScrollTrigger.batch(later, {start:'top 94%', once:true, interval:.08, onEnter:b => play(b)}));
+      triggers.grid.push.apply(triggers.grid, ScrollTrigger.batch(later, {start:'top 102%', once:true, interval:.05, onEnter:b => play(b)}));
     } else now.push.apply(now, later);
   }
   if (now.length) play(now, .05);
@@ -312,12 +312,8 @@ GM.drawer = function(dw){
   GM.parallax(dw);
   const photo = $('.dw-photo', dw), img = $('.dw-photo .ph > img', dw), pad = $$('.dw-pad > *', dw), title = $('.dw-title', dw);
   const tl = g.timeline({defaults:{ease:OUT}});
-  if (img) tl.fromTo(img, {scale:1.3}, {scale:1.22, duration:1.1, clearProps:'transform'}, .1);
-  tl.from(pad, {opacity:0, y:16, duration:.5, stagger:.05, clearProps:CLEAR}, .3);
-  if (title && window.SplitText) {
-    const sp = SplitText.create(title, {type:'words', aria:'auto'});
-    tl.from(sp.words, {opacity:0, y:16, duration:.5, stagger:.04, onComplete:() => sp.revert()}, .38);
-  }
+  if (img) tl.fromTo(img, {scale:1.28}, {scale:1.22, duration:.7, clearProps:'transform'}, .05);
+  tl.from(pad, {opacity:0, y:10, duration:.35, stagger:.03, clearProps:CLEAR}, .18);
   return true;
 };
 
@@ -355,9 +351,9 @@ GM.modalOpen = function(dw, scrim, src, done){
   body.style.width = r1.width + 'px'; body.style.flex = '0 0 auto'; body.style.opacity = '0'; close.style.opacity = '0';
   dw.append(gh);
   const tl = g.timeline({onComplete(){ modalClean(dw); done && done(); }});
-  tl.to(dw, {left:r1.left, top:r1.top, width:r1.width, height:r1.height, borderRadius:22, duration:.6, ease:'power3.inOut'}, 0)
-    .to(gh, {opacity:0, duration:.3, ease:'power1.out'}, .1)
-    .to([body, close], {opacity:1, duration:.3, ease:'power1.out'}, .2);
+  tl.to(dw, {left:r1.left, top:r1.top, width:r1.width, height:r1.height, borderRadius:22, duration:.4, ease:'power3.inOut'}, 0)
+    .to(gh, {opacity:0, duration:.15, ease:'power1.out'}, .04)
+    .to([body, close], {opacity:1, duration:.2, ease:'power1.out'}, .12);
   return true;
 };
 GM.modalClose = function(dw, scrim, src, done){

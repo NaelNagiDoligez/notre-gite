@@ -148,7 +148,7 @@ function flipPlay(root, before, enter, gm){
         const a = anim(el, [{transform:`translate(${dx}px,${dy}px)`}, {transform:'none'}], {duration:480, easing:EASE_IO});
         if (a && el.tagName === 'TR') { el.classList.add('fl-row'); el.style.position = 'relative'; el.style.zIndex = String(2 + Math.min(40, Math.round(Math.abs(dy) / 40))); const done = () => { el.classList.remove('fl-row'); el.style.zIndex = ''; el.style.position = ''; }; a.onfinish = done; a.oncancel = done; }
       }
-    } else if (enter !== false) {
+    } else if (enter !== false && !S.calm) {
       if (gm && GM.enterCards) fresh.push(el);
       else anim(el, [{opacity:0, transform:'translateY(24px) scale(.95) rotate(-0.8deg)'}, {opacity:1, transform:'none'}], {duration:600, delay:Math.min(n++, 10) * 60, easing:EASE_OUT, fill:'backwards'});
     }
@@ -159,7 +159,7 @@ function countUp(el, to, dur){
   if (!el) return;
   if (!M() || to == null || !dur) { el.textContent = fmtScore(to); return; }
   const t0 = performance.now();
-  const step = t => { const p = Math.min(1, (t - t0) / dur); const e = 1 - Math.pow(1 - p, 4); el.textContent = fmtScore(to * e); if (p < 1) requestAnimationFrame(step); };
+  const step = t => { const p = Math.max(0, Math.min(1, (t - t0) / dur)); const e = 1 - Math.pow(1 - p, 4); el.textContent = fmtScore(to * e); if (p < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
 
@@ -179,7 +179,6 @@ const crits = () => (Array.isArray(cfg().criteria) && cfg().criteria.length ? cf
 const statuses = () => (Array.isArray(cfg().statuses) && cfg().statuses.length ? cfg().statuses : DEFAULT_CONFIG.statuses);
 const listingsArr = () => Object.values(S.listings);
 const memberIds = () => Object.keys(S.members);
-const isPayer = () => true; /* plus de distinction : tout le monde note tous les critères */
 const nameOf = uid => (S.members[uid] && S.members[uid].name) || 'Quelqu’un';
 const votesOf = uid => S.votes[uid] || {scores:{}, heart:null, veto:null};
 const canEdit = () => !!S.db && !!S.myId && !S.readOnly;
@@ -187,7 +186,7 @@ const wouldVote = () => canEdit() && !cfg().closed;
 const canVote = () => wouldVote() && !!S.members[S.myId];
 /* La galerie attend d'avoir reçu les logements, les notes et les inscrits : sinon les cartes se redessinent au fil des réponses et l'entrée animée est coupée. */
 const dataReady = () => !S.waiting && (!S.db || (S.loaded.listings && S.loaded.votes && S.loaded.members));
-const applicable = uid => crits().filter(c => !c.payersOnly || isPayer(uid));
+const applicable = () => crits(); /* tout le monde note tous les critères */
 /* Un critère ajouté après coup n'est exigé que pour les logements qu'on commence à noter après son ajout :
    ajouter un critère ne recache pas les notes déjà débloquées. */
 function hasCompleted(uid, lid){
@@ -204,7 +203,6 @@ function stats(lid){
   crits().forEach(c => {
     const vals = [];
     for (const uid of ids) {
-      if (c.payersOnly && !isPayer(uid)) continue;
       const v = ((votesOf(uid).scores || {})[lid] || {})[c.id];
       if (typeof v === 'number') vals.push(v);
     }
@@ -319,13 +317,11 @@ function writeDoc(path, data){
   p.catch(onWriteError);
   return p;
 }
-/* Modifie quelques champs en relisant d'abord la version en base : on n'écrase pas ce que quelqu'un d'autre vient de changer. */
+/* Modifie quelques champs : la base fusionne elle-même, on n'écrase pas ce que quelqu'un d'autre vient de changer. */
 function patchDoc(path, patch){
   const prev = writeQ[path] || Promise.resolve();
   const p = prev.catch(() => {}).then(async () => {
-    const r = S.db.doc(path); const sn = await r.get();
-    if (!sn.exists) throw {code:'not_found', message:'absent'};
-    return r.set(Object.assign({}, sn.data(), patch));
+    return S.db.patch(path, patch);
   });
   writeQ[path] = p;
   p.catch(e => { if (e && e.code === 'not_found') toast('Ce logement vient d’être supprimé.'); else onWriteError(e); });
@@ -435,7 +431,7 @@ function burst(el){
   }
 }
 function podiumEntrance(el){
-  if (!M()) return;
+  if (!M() || S.calm) return;
   const gm = GM.podium ? GM.podium(el) : null; /* {r1, r2, r3} : instants où la carte se pose, en ms */
   const delays = gm || {r3:0, r2:170, r1:340};
   $$('.stage .step', el).forEach(stp => {
@@ -588,7 +584,8 @@ function renderNews(){
   if (voters.length) items.push(`<li><span>${esc(voters.map(nameOf).join(', '))} ${voters.length > 1 ? 'ont' : 'a'} voté</span></li>`);
   if (!items.length) return off();
   const n = Math.min(8, items.length);
-  const html = `<p class="news-t">Depuis ta dernière visite</p><button type="button" class="news-t news-tg" data-act="news-toggle" aria-expanded="${!!S.newsOpen}">Depuis ta dernière visite <span class="news-n">${n} nouveauté${n > 1 ? 's' : ''}</span>${IC.chev}</button><ul>${items.slice(0, 8).join('')}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
+  const more = n > 3 ? `<li class="news-more"><button type="button" data-act="news-toggle" aria-expanded="${!!S.newsOpen}">${S.newsOpen ? 'Moins' : '+ ' + (n - 3) + ' autre' + (n - 3 > 1 ? 's' : '')}</button></li>` : '';
+  const html = `<p class="news-t">Depuis ta dernière visite</p><button type="button" class="news-t news-tg" data-act="news-toggle" aria-expanded="${!!S.newsOpen}">Depuis ta dernière visite <span class="news-n">${n} nouveauté${n > 1 ? 's' : ''}</span>${IC.chev}</button><ul>${items.slice(0, 8).join('')}${more}</ul><button type="button" class="link-btn" data-act="news-hide">J’ai vu</button>`;
   if (el._h === html) return;
   const first = el.hidden; el.innerHTML = html; el._h = html; el.hidden = false; el.classList.toggle('open', !!S.newsOpen);
   if (first) { const hh = el.offsetHeight; anim(el, [{opacity:0, transform:'translateY(-10px)', height:'0px', paddingBlock:'0px', overflow:'hidden'}, {opacity:1, transform:'none', height:hh + 'px', overflow:'hidden'}], {duration:480, easing:EASE_OUT}); $$('li', el).forEach((li, i) => anim(li, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'none'}], {duration:360, delay:160 + i * 60, easing:EASE_BACK, fill:'backwards'})); }
@@ -660,7 +657,14 @@ function makeDb(sb, uid){
     }).concat(Array.from(docL.keys()).map(p => docRef(p).get().then(sn => (docL.get(p) || new Set()).forEach(f => f(sn)), () => { failed = true; }))));
     if (failed) retry();
   }
-  return {doc:docRef, collection:colRef, refresh};
+  /* Fusion faite par la base (fonction patch_doc) : seuls les champs envoyés changent, rien n'est écrasé. */
+  async function patch(p, fields){
+    const {data, error} = await sb.rpc('patch_doc', {p, patch:fields});
+    if (error) throw sbErr(error);
+    if (data == null) { const sn = await docRef(p).get(); throw sn.exists ? {code:'invalid_argument', message:'refusé'} : {code:'not_found', message:'absent'}; }
+    cache.set(p, data); emit(p); return data;
+  }
+  return {doc:docRef, collection:colRef, refresh, patch};
 }
 /* Photos : stockées dans le « bucket » photos de Supabase. */
 function makeAssets(sb, uid){
@@ -908,7 +912,8 @@ function editTrip(k){
 let indPlaced = false;
 function renderTabs(){
   $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === S.view)));
-  placeInd(indPlaced); indPlaced = true;
+  /* La pastille ne se recalcule qu'au changement d'onglet (et au redimensionnement), pas à chaque mise à jour. */
+  if (!indPlaced || S.indView !== S.view) { placeInd(indPlaced); indPlaced = true; S.indView = S.view; }
 }
 function placeInd(animate){
   const nav = $('#tabs'), ind = $('#tab-ind'), a = $('.tab[aria-selected="true"]', nav); if (!a) return;
@@ -930,12 +935,16 @@ function setView(v){
   renderTabs();
   /* Onglets collants : si on a défilé loin, on remonte au début du nouvel onglet (juste sous la barre) */
   { const bar = $('.bar'), pn = $('#panel'); if (bar && pn) { const bb = bar.getBoundingClientRect(), pt = pn.getBoundingClientRect().top; if (pt < bb.bottom - 1) window.scrollTo({top:Math.max(0, scrollY + pt - bb.height - 8), behavior:'instant'}); } }
+  /* Grande chorégraphie d'entrée seulement à la première visite de l'onglet ; ensuite un simple fondu. */
+  if (!S.visited) S.visited = new Set();
+  const calm = S.visited.has(v); S.visited.add(v);
+  const draw = () => { S.calm = calm; try { renderView(); } finally { S.calm = false; } };
   if (M() && GM.swap && lastView) {
     S.swapping = true;
-    GM.swap($('#panel'), S.navDir, () => { renderView(); S.swapping = false; });
-  } else renderView();
+    GM.swap($('#panel'), S.navDir, () => { draw(); S.swapping = false; });
+  } else draw();
 }
-function readHash(){ const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
+function readHash(){ const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; S.visited = new Set([S.view]); }
 
 /* ---------- Vues ---------- */
 let lastView = null;
@@ -1099,7 +1108,11 @@ function fillGallery(changed){
   const html = list.length && dataReady() ? list.map(cardHTML).join('') : emptyHTML();
   if (grid._h !== html) {
     if (GM.killScroll) GM.killScroll('grid');
-    const before = flipCapture(grid); grid.innerHTML = html; grid._h = html; flipPlay(grid, before, undefined, true);
+    /* Même ordre de cartes (ex. un vote reçu) : pas besoin de mesurer et d'animer les déplacements. */
+    const keys = list.map(l => l.id).join('|') + (dataReady() ? '' : '#sk');
+    const same = grid._keys === keys; grid._keys = keys;
+    const before = same ? new Map(list.map(l => [l.id, null])) : flipCapture(grid);
+    grid.innerHTML = html; grid._h = html; if (!same) flipPlay(grid, before, undefined, true);
     $$('.card', grid).forEach((c, i) => {
       const k = c.dataset.k; const s = st(k); const prev = S.prevMarks[k];
       if (!before.has(k)) {
@@ -1157,7 +1170,7 @@ function mapSVG(mini){
 }
 const mapDelay = el => { const d = DEP[el.dataset.dep]; return d ? Math.hypot(d.cx - FR.w / 2, d.cy - FR.h / 2) / Math.hypot(FR.w / 2, FR.h / 2) : 0; }; /* 0 au centre, 1 aux coins : l'onde part du milieu de la France */
 function popPins(root){
-  if (!M() || !root) return;
+  if (!M() || !root || S.calm) return;
   if (GM.mapIn) GM.mapIn(root, mapDelay);
   if (GM.pins && GM.pins(root)) return;
   $$('.pin', root).forEach((p, i) => {
@@ -1251,16 +1264,24 @@ function sortTh(key, label, cls){
   return `<th scope="col"${cls ? ` class="${cls}"` : ''} aria-sort="${on ? (S.cmp.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="sort-btn" data-sort="${esc(key)}">${esc(label)}${IC.chev}</button></th>`;
 }
 /* Pour une ligne : le critère le mieux noté « s'allume », le plus bas « s'éteint » (s'ils diffèrent). */
+/* Meilleur logement pour chaque critère (parmi ceux affichés et visibles). */
+let colBest = {};
+function computeColBest(arr, cs){
+  colBest = {};
+  cs.forEach(c => {
+    const vals = arr.filter(l => canSee(l.id)).map(l => st(l.id).per[c.id]).filter(v => typeof v === 'number');
+    if (vals.length < 2) return; const hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals);
+    if (hi - lo >= 0.5) colBest[c.id] = hi;
+  });
+}
 function rank(s, cs, cid, see){
   if (!see) return '';
-  const vals = cs.map(c => s.per[c.id]).filter(v => typeof v === 'number'); if (vals.length < 3) return '';
-  const hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals); if (hi - lo < 1) return '';
-  const v = s.per[cid]; return v === hi ? 'best' : v === lo ? 'low' : '';
+  const v = s.per[cid]; return typeof v === 'number' && colBest[cid] === v ? 'best' : '';
 }
 function cellHTML(v, see, rk){
   if (!see) return `<span class="lock" title="Note ce logement pour voir">${IC.lock}</span>`;
   if (v == null) return '<span class="muted">–</span>';
-  return `<div class="cell${rk ? ' ' + rk : ''}">${rk === 'best' ? '<span class="sr-only">meilleure note de ce logement : </span>' : rk === 'low' ? '<span class="sr-only">note la plus basse de ce logement : </span>' : ''}<span class="num">${fmtScore(v)}</span><span class="gauge"><span style="transform:scaleX(${(v / 10).toFixed(3)})"></span></span></div>`;
+  return `<div class="cell${rk ? ' ' + rk : ''}">${rk === 'best' ? '<span class="sr-only">meilleure note pour ce critère : </span>' : ''}<span class="num">${fmtScore(v)}</span><span class="gauge"><span style="transform:scaleX(${(v / 10).toFixed(3)})"></span></span></div>`;
 }
 function fillCompare(changed){
   fillFilterSelects();
@@ -1273,7 +1294,7 @@ function fillCompare(changed){
     if (k === 'price') return num(l.price);
     if (k === 'ppn') return perPN(l);
     if (k === 'overall') return see ? s.overall : null;
-    if (k === 'hearts') return s.hearts.length;
+    if (k === 'hearts') return see ? s.hearts.length - s.vetos.length : null;
     if (k === 'voted') return s.voted;
     if (k.startsWith('c:')) return see ? s.per[k.slice(2)] : null;
     return null;
@@ -1281,15 +1302,18 @@ function fillCompare(changed){
   arr.sort((a, b) => { const va = val(a), vb = val(b); if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1; if (typeof va === 'string') return dir * va.localeCompare(vb, 'fr'); return dir * (va - vb); });
   const wrap = $('#cmp-wrap');
   if (!dataReady()) { wrap.innerHTML = skWrap(skRows(6)); wrap._h = null; return; }
+  computeColBest(arr, cs);
+  const anyPPN = arr.some(l => perPN(l) != null);
+  const mob = matchMedia('(max-width:700px)').matches; S.cmpMob = mob;
   if (!all.length) { wrap.innerHTML = `<div style="padding:24px">${emptyHTML()}</div>`; wrap._h = null; return; }
-  let html = `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('price', 'Prix total')}${sortTh('ppn', 'Par nuit')}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('overall', 'Moyenne')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
+  let html = mob ? '' : `<table class="cmp"><thead><tr>${sortTh('title', 'Logement', 'c-name')}${sortTh('overall', 'Moyenne')}${sortTh('price', 'Prix total')}${anyPPN ? sortTh('ppn', 'Par nuit') : ''}${cs.map(c => sortTh('c:' + c.id, c.label)).join('')}${sortTh('hearts', 'Cœurs et veto')}${sortTh('voted', 'Ont noté')}<th scope="col">Statut</th></tr></thead><tbody>` +
     arr.map(l => {
       const s = st(l.id); const see = canSee(l.id);
       return `<tr data-k="${esc(l.id)}"><td class="c-name"><button type="button" class="row-btn" data-open="${esc(l.id)}"><span class="thumb">${photoHTML(l)}</span><span><span class="tt">${esc(l.title)}</span><br><span class="sub">${esc(placeOf(l))}</span></span></button></td>
-        <td class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</td>
-        <td class="num">${esc(fmtEur(perPN(l)))}</td>
-        ${cs.map(c => `<td>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</td>`).join('')}
         <td>${see ? (s.overall == null ? '<span class="muted">–</span>' : `<span class="num big-num">${fmtScore(s.overall)}</span>`) : `<span class="lock">${IC.lock}</span>`}</td>
+        <td class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</td>
+        ${anyPPN ? `<td class="num">${esc(fmtEur(perPN(l)))}</td>` : ''}
+        ${cs.map(c => `<td>${cellHTML(s.per[c.id], see, rank(s, cs, c.id, see))}</td>`).join('')}
         <td>${badgesHTML(l, s, true, true) || '<span class="muted">–</span>'}</td>
         <td class="num">${s.voted} / ${s.total}</td>
         <td>${chipHTML(l)}${dispoChip(l)}</td></tr>`;
@@ -1303,11 +1327,11 @@ function fillCompare(changed){
         <div class="cc-meta"><span class="num">${esc(num(l.price) == null ? '–' : fmtPrice(num(l.price)))}</span>${perPN(l) != null ? `<span class="small muted">${esc(fmtEur(perPN(l)))} / nuit</span>` : ''}${badgesHTML(l, s, true, true)}<span class="small muted">${s.voted} / ${s.total} ont noté</span>${chipHTML(l)}${dispoChip(l)}</div>
         ${crs ? `<ul class="cc-crit">${crs}</ul>` : ''}</article>`;
     }).join('') + '</div>';
-  html += cards;
+  if (mob) html += cards;
   if (!arr.length) html += '<p style="padding:16px" class="muted">Aucun logement ne correspond à ces filtres.</p>';
   if (wrap._h !== html) {
     const before = flipCapture(wrap); wrap.innerHTML = html; wrap._h = html; flipPlay(wrap, before, !changed);
-    if (changed && M()) {
+    if (changed && M() && !S.calm) {
       if (!(GM.rows && GM.rows(wrap))) $$('tbody tr', wrap).forEach((tr, i) => anim(tr, [{opacity:0, transform:'translateY(10px)'}, {opacity:1, transform:'none'}], {duration:420, delay:80 + i * 50, easing:EASE_OUT, fill:'backwards'}));
       if (GM.lights) GM.lights(wrap);
       $$('.gauge>span', wrap).forEach((g, i) => { const fin = g.style.transform; anim(g, [{transform:'scaleX(0)'}, {transform:fin}], {duration:800, delay:220 + Math.floor(i / cs.length) * 50, easing:EASE_OUT, fill:'backwards'}); });
@@ -1349,7 +1373,7 @@ function fillPodium(changed){
     else acts += '<button type="button" class="btn" data-act="reopen">Rouvrir les votes</button>';
   }
   if (c.closed && all.length) acts += '<button type="button" class="btn" data-act="replay">Revoir la révélation</button>';
-  if (unlocked && all.length && S.downloads) acts += '<button type="button" class="btn" data-act="dl-md">Télécharger le récap</button><button type="button" class="btn" data-act="dl-csv">Tableau des notes</button>';
+  if (unlocked && all.length && S.downloads) acts += '<button type="button" class="btn btn-ghost btn-sm" data-act="dl-md">Télécharger le récap</button><button type="button" class="btn btn-ghost btn-sm" data-act="dl-csv">Tableau des notes</button>';
   const head = `<div class="pod-head"><div><p class="eyebrow">${c.closed ? 'Résultat final · votes clos le ' + esc(fmtLong(c.closedAt)) : 'Classement provisoire'}</p><h2 class="h2" style="font-size:34px">${c.closed ? (() => { const w = ranking()[0]; return w && w.l ? '🏆 ' + esc(w.l.title) : 'Le podium'; })() : 'Le podium'}</h2></div><div class="pod-actions">${acts}</div></div>`;
   if (!all.length) { el.innerHTML = head + '<div class="lock-card"><h3 class="h2">Pas encore de podium</h3><p class="muted">Il se remplira quand des logements auront été ajoutés et notés.</p></div>' + whoHTML(); el._h = null; return; }
   if (!unlocked) {
@@ -1723,6 +1747,7 @@ function loadTesseract(){
   if (!tessP) tessP = new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.integrity = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F'; s.crossOrigin = 'anonymous';
     s.onload = () => res(window.Tesseract); s.onerror = () => { tessP = null; rej(new Error('ocr')); };
     document.head.append(s);
   });
@@ -1868,10 +1893,10 @@ function parseListing(text, lines){
 async function shrink(file){
   try {
     const bmp = await createImageBitmap(file);
-    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const k = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
     const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
     cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-    const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.85));
+    const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.8));
     return blob || file;
   } catch (e) { return file; }
 }
@@ -2021,6 +2046,8 @@ function closeModal(force, fromPop){
   if (!force && $('#f-listing') && (ML.dirty || ML.shots.length || ML.photos.some(p => p.type !== 'existing'))) { askDiscard(); return; }
   if (!fromPop) popOverlay('modal');
   if (ML.ctl) ML.ctl.abort();
+  /* L'outil de lecture des captures est lourd : on le libère dès que la fenêtre se ferme. */
+  if (workerP) { const w = workerP; workerP = null; w.then(x => x.terminate()).catch(() => {}); }
   ML.shots.forEach(s => URL.revokeObjectURL(s.url)); ML.photos.forEach(p => { if (p.type === 'file') URL.revokeObjectURL(p.url); });
   ML.shots = []; ML.photos = [];
   m.classList.remove('open');
@@ -2243,7 +2270,7 @@ function bindStatic(){
       case 'keep-edit': { const e = $('#li-save-err'); if (e) e.textContent = ''; return; }
       case 'logout': SB.auth.signOut().finally(() => location.reload()); return;
       case 'nudge': nudge(); return;
-      case 'news-toggle': { S.newsOpen = !S.newsOpen; const n = $('#news'); n.classList.toggle('open', S.newsOpen); t.setAttribute('aria-expanded', String(S.newsOpen)); if (S.newsOpen) $$('li', n).forEach((li, i) => anim(li, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:260, delay:i * 30, easing:EASE_OUT, fill:'backwards'})); return; }
+      case 'news-toggle': { S.newsOpen = !S.newsOpen; const n = $('#news'); n.classList.toggle('open', S.newsOpen); renderNews(); t.setAttribute('aria-expanded', String(S.newsOpen)); if (S.newsOpen) $$('li', n).forEach((li, i) => anim(li, [{opacity:0, transform:'translateY(-6px)'}, {opacity:1, transform:'none'}], {duration:260, delay:i * 30, easing:EASE_OUT, fill:'backwards'})); return; }
       case 'news-hide': { S.newsHidden = true; const n = $('#news'); const a = anim(n, [{opacity:1, transform:'none'}, {opacity:0, transform:'translateY(-8px)'}], {duration:220, easing:EASE_OUT, fill:'forwards'}); if (a) a.finished.then(renderNews, renderNews); else renderNews(); return; }
       case 'unfix-week': if (S.isOwner) { S.trip = Object.assign({}, S.trip, {week:null, periode:'Été ' + YEAR + ', dates à définir', updatedAt:Date.now()}); writeDoc('trip/main', S.trip); schedule(); } return;
       case 'dl-md': return download('md');
@@ -2319,6 +2346,8 @@ function bindStatic(){
   document.addEventListener('focusout', e => { if (S.ptype === 'touch') return; if (e.target.closest && e.target.closest('#big-map .pin')) hidePinTip(); });
   let hiddenAt = 0;
   const resync = () => { if (S.myVoteDirty) flushVote(); refreshPending(); if (S.pendingSession && !$('#lg-wait').hidden) recheck(true); if (S.db && S.db.refresh) S.db.refresh().catch(() => {}); };
+  /* Comparateur : un seul affichage est construit (tableau ou cartes), on le refait si l'écran change de taille de catégorie. */
+  matchMedia('(max-width:700px)').addEventListener('change', () => { if (S.view === 'comparateur' && $('#cmp-wrap')) { $('#cmp-wrap')._h = null; fillCompare(); } });
   addEventListener('pagehide', () => { if (S.myVoteDirty) flushVote(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); if (S.myVoteDirty) flushVote(); } else if (hiddenAt && Date.now() - hiddenAt > 3000) resync(); });
   addEventListener('online', resync);

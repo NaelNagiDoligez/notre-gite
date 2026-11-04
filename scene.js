@@ -195,6 +195,13 @@ html[data-scene="on"]{background:linear-gradient(180deg,var(--sc-top) 0,var(--sc
 html[data-motion="off"] #scene,html[data-motion="off"] #sc-land{animation:none}
 #sc-sun,#sc-moon,.sc-glow{position:absolute;left:0;top:0;will-change:transform}
 #sc-sun{width:116px;height:116px;margin:-58px 0 0 -58px}#sc-moon{width:82px;height:82px;margin:-41px 0 0 -41px}
+@media (max-width:700px){#sc-sun{width:72px;height:72px;margin:-36px 0 0 -36px;opacity:.85}#sc-moon{width:58px;height:58px;margin:-29px 0 0 -29px;opacity:.85}.sc-glow{opacity:.2!important}}
+/* Voile papier sur le bas du paysage : le texte posé dessus reste lisible */
+#scene::before{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;background:linear-gradient(180deg,transparent 40%,color-mix(in srgb,var(--paper) 38%,transparent) 75%,color-mix(in srgb,var(--paper) 30%,transparent))}
+/* Batterie : on met en pause ce qui ne se voit pas (étoiles le jour, paysage de jour la nuit) et, sur téléphone, les petites boucles */
+html[data-stars="off"] #scene :is(.sc-stars i,.sc-night,.sc-night *,.sc-ff){animation-play-state:paused}
+html[data-dayoff="on"] #scene :is(.sc-day,.sc-day *){animation-play-state:paused}
+@media (max-width:700px){#scene :is(.sc-leg,.sc-bob,.sc-tail,.sc-head,.sc-flap,.sc-wave,.sc-crab,.sc-beam,.sc-ff){animation-play-state:paused}}
 .sc-glow{width:420px;height:420px;margin:-210px 0 0 -210px;border-radius:50%;background:radial-gradient(closest-side,var(--sc-sun),transparent);opacity:.32}
 .sc-rays{transform-origin:0 0;animation:sc-spin 90s linear infinite}
 .sc-stars{position:absolute;inset:0;opacity:var(--sc-night,0);transition:opacity 1.2s ease}
@@ -240,7 +247,6 @@ html[data-motion="off"] #scene,html[data-motion="off"] #sc-land{animation:none}
 @keyframes sc-ff{from{transform:translate(0,0);opacity:.2}50%{opacity:1}to{transform:translate(26px,-30px);opacity:.3}}
 @keyframes sc-beam{from{transform:rotate(-4deg)}to{transform:rotate(4deg) scaleY(1.25)}}
 html[data-motion="off"] #scene *{animation:none!important}
-html[data-motion="off"] #scene .sc-mv{display:none}
 html[data-motion="off"] #scene .sc-cloud{transform:translate3d(18vw,0,0)}
 html[data-motion="off"] #scene .sc-stars i{opacity:.8}
 @media (max-width:700px){#scene .sc-balloon,#scene .sc-flock{display:none}}
@@ -282,6 +288,7 @@ function update(){
   }
   let tc = document.querySelector('meta[name=theme-color]'); if (!tc) { tc = document.createElement('meta'); tc.name = 'theme-color'; document.head.append(tc); } tc.content = p.top;
   root.dataset.sky = n > 0.55 ? 'night' : (h < 9 || h > 18 ? 'dusk' : 'day');
+  root.dataset.stars = n > 0.02 ? 'on' : 'off'; root.dataset.dayoff = n > 0.97 ? 'on' : 'off';
 }
 
 function applyScene(){

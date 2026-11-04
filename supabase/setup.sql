@@ -51,11 +51,15 @@ grant execute on function private.can_write(text) to authenticated;
 drop policy if exists "lecture" on public.docs;
 create policy "lecture" on public.docs for select to authenticated using (private.is_member());
 drop policy if exists "ajout" on public.docs;
+-- Un commentaire ne peut être écrit qu'au nom de la personne connectée.
 create policy "ajout" on public.docs for insert to authenticated
-  with check (private.can_write(path) and collection = split_part(path, '/', 1));
+  with check (private.can_write(path) and collection = split_part(path, '/', 1)
+    and (collection <> 'comments' or data->>'by' = auth.uid()::text));
 drop policy if exists "modification" on public.docs;
 create policy "modification" on public.docs for update to authenticated
-  using (private.can_write(path)) with check (private.can_write(path) and collection = split_part(path, '/', 1));
+  using (private.can_write(path) and (collection <> 'comments' or data->>'by' = auth.uid()::text))
+  with check (private.can_write(path) and collection = split_part(path, '/', 1)
+    and (collection <> 'comments' or data->>'by' = auth.uid()::text));
 drop policy if exists "suppression" on public.docs;
 -- Suppression : un logement par un organisateur seulement, un commentaire par son auteur ou un organisateur.
 create policy "suppression" on public.docs for delete to authenticated using (
@@ -77,6 +81,10 @@ exception when duplicate_object then null; end $$;
 -- 5. Les photos des logements
 insert into storage.buckets (id, name, public) values ('photos', 'photos', true)
 on conflict (id) do nothing;
+-- 5 Mo maximum, images seulement
+update storage.buckets set file_size_limit = 5242880,
+  allowed_mime_types = array['image/jpeg','image/png','image/webp','image/gif']
+where id = 'photos';
 drop policy if exists "photos ajout" on storage.objects;
 create policy "photos ajout" on storage.objects for insert to authenticated
   with check (bucket_id = 'photos' and private.is_member());
@@ -166,3 +174,13 @@ begin
 end $$;
 revoke all on function public.approve_user(uuid, boolean) from public, anon;
 grant execute on function public.approve_user(uuid, boolean) to authenticated;
+
+-- Fusion côté serveur (utilisée par l'app pour modifier quelques champs d'une fiche) :
+-- deux personnes qui modifient la même fiche en même temps ne s'écrasent plus. security invoker : les règles ci-dessus s'appliquent.
+create or replace function public.patch_doc(p text, patch jsonb) returns jsonb
+language sql security invoker set search_path = public as $$
+  update public.docs set data = data || patch, updated_by = auth.uid(), updated_at = now()
+  where path = p returning data;
+$$;
+revoke all on function public.patch_doc(text, jsonb) from public, anon;
+grant execute on function public.patch_doc(text, jsonb) to authenticated;
