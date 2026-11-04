@@ -778,10 +778,10 @@ html.js-motion .fab{opacity:0}
 body:has(#drawer-wrap:not([hidden])) .fab,body:has(#modal:not([hidden])) .fab,body:has(#reveal:not([hidden])) .fab{display:none!important}
 .bar{top:env(safe-area-inset-top,0px)}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--paper);z-index:41;pointer-events:none}
-/* iPhone (écran d'accueil) : bandeau opaque derrière l'heure et la batterie, onglets décalés plus bas */
-@media (hover:none) and (pointer:coarse){
-  body::before{height:calc(env(safe-area-inset-top,0px) + 16px)}
-  .bar{top:calc(env(safe-area-inset-top,0px) + 16px);background:color-mix(in srgb,var(--paper) 96%,transparent)}
+/* App sur l'écran d'accueil uniquement (pas dans le navigateur) : bandeau opaque derrière l'heure et la batterie, onglets décalés plus bas */
+@media (display-mode:standalone) and (hover:none){
+  body::before{height:calc(env(safe-area-inset-top,0px) + 18px)}
+  .bar{top:calc(env(safe-area-inset-top,0px) + 18px);background:color-mix(in srgb,var(--paper) 96%,transparent)}
 }
 @media (hover:none){.kbd-only{display:none}}
 @media (max-width:640px){
